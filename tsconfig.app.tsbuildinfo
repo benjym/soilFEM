@@ -1,0 +1,1 @@
+{"root":["./src/main.ts","./src/vite-env.d.ts","./src/app/app.ts","./src/editor/svgeditor.ts","./src/examples/defaultscene.ts","./src/model/types.ts","./src/store/appstore.test.ts","./src/store/appstore.ts"],"version":"5.9.3"}
