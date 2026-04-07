@@ -1,4 +1,4 @@
-import type { AppState, Node, ViewportState } from '../model/types';
+import type { AppState, ContourField, ElementAnalysisResult, Node, ViewportState } from '../model/types';
 import { AppStore } from '../store/AppStore';
 
 const svgNamespace = 'http://www.w3.org/2000/svg';
@@ -19,6 +19,68 @@ function createSvgElement<T extends keyof SVGElementTagNameMap>(tagName: T): SVG
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function getNodeMap(nodes: Node[]): Map<string, Node> {
+  return new Map(nodes.map((node) => [node.id, node]));
+}
+
+function getContourValue(field: ContourField, result: ElementAnalysisResult): number {
+  switch (field) {
+    case 'meanStress':
+      return result.stress.meanStress;
+    case 'deviatoricStress':
+      return result.stress.deviatoricStress;
+    case 'sxx':
+      return result.stress.sxx;
+    case 'syy':
+      return result.stress.syy;
+    case 'txy':
+      return result.stress.txy;
+    case 'volumetricStrain':
+      return result.strain.volumetric;
+    case 'none':
+    default:
+      return 0;
+  }
+}
+
+function interpolateColor(start: [number, number, number], end: [number, number, number], weight: number): string {
+  const r = Math.round(start[0] + (end[0] - start[0]) * weight);
+  const g = Math.round(start[1] + (end[1] - start[1]) * weight);
+  const b = Math.round(start[2] + (end[2] - start[2]) * weight);
+
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function getContourColor(value: number, minValue: number, maxValue: number): string {
+  if (Math.abs(maxValue - minValue) <= 1e-12) {
+    return 'rgb(229, 201, 159)';
+  }
+
+  const ratio = clamp((value - minValue) / (maxValue - minValue), 0, 1);
+
+  if (ratio <= 0.5) {
+    return interpolateColor([49, 92, 121], [238, 228, 205], ratio * 2);
+  }
+
+  return interpolateColor([238, 228, 205], [159, 76, 44], (ratio - 0.5) * 2);
+}
+
+function createArrowHead(id: string, color: string): SVGMarkerElement {
+  const marker = createSvgElement('marker');
+  marker.setAttribute('id', id);
+  marker.setAttribute('markerWidth', '8');
+  marker.setAttribute('markerHeight', '8');
+  marker.setAttribute('refX', '6');
+  marker.setAttribute('refY', '3');
+  marker.setAttribute('orient', 'auto');
+  const path = createSvgElement('path');
+  path.setAttribute('d', 'M 0 0 L 6 3 L 0 6 Z');
+  path.setAttribute('fill', color);
+  marker.append(path);
+
+  return marker;
 }
 
 export class SvgEditor {
@@ -43,6 +105,7 @@ export class SvgEditor {
   private onPointerDown(event: PointerEvent): void {
     const state = this.store.getState();
     const nodeElement = (event.target as HTMLElement).closest<SVGCircleElement>('[data-node-id]');
+    const polygonElement = (event.target as HTMLElement).closest<SVGPolygonElement>('[data-element-id]');
 
     if (nodeElement) {
       const nodeId = nodeElement.dataset.nodeId;
@@ -56,9 +119,30 @@ export class SvgEditor {
         return;
       }
 
+      if (state.tool === 'add-support') {
+        this.store.applySupportToNode(nodeId);
+        return;
+      }
+
+      if (state.tool === 'add-load') {
+        this.store.applyLoadToNode(nodeId);
+        return;
+      }
+
       this.store.selectNode(nodeId, event.shiftKey || event.metaKey);
       this.dragState = { kind: 'move-node', pointerId: event.pointerId, nodeId };
       this.svg.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    if (polygonElement && state.tool === 'select') {
+      const elementId = polygonElement.dataset.elementId;
+
+      if (!elementId) {
+        return;
+      }
+
+      this.store.selectElement(elementId, event.shiftKey || event.metaKey);
       return;
     }
 
@@ -143,9 +227,17 @@ export class SvgEditor {
     this.svg.replaceChildren();
     this.svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
 
+    const defs = createSvgElement('defs');
+    defs.append(
+      createArrowHead('displacement-arrowhead', '#185373'),
+      createArrowHead('reaction-arrowhead', '#8d2435'),
+    );
+
     this.svg.append(
+      defs,
       this.buildGrid(state.viewport, width, height),
       this.buildWorld(state, width, height),
+      this.buildOverlay(state, width),
     );
   }
 
@@ -184,6 +276,21 @@ export class SvgEditor {
 
   private buildWorld(state: AppState, width: number, height: number): SVGGElement {
     const group = createSvgElement('g');
+    const nodeMap = getNodeMap(state.scene.nodes);
+    const displacementMap = new Map(state.analysis.result?.displacements.map((result) => [result.nodeId, result]) ?? []);
+    const elementResultMap = new Map(state.analysis.result?.elementResults.map((result) => [result.elementId, result]) ?? []);
+    const contourField = state.analysis.status === 'success' ? state.visualization.contourField : 'none';
+    const contourValues = contourField === 'none'
+      ? []
+      : state.analysis.result?.elementResults.map((result) => getContourValue(contourField, result)) ?? [];
+    const contourMin = contourValues.length ? Math.min(...contourValues) : 0;
+    const contourMax = contourValues.length ? Math.max(...contourValues) : 0;
+    const span = Math.max(1, ...state.scene.nodes.map((node) => Math.max(Math.abs(node.x), Math.abs(node.y))));
+    const maxDisplacement = Math.max(0, ...Array.from(displacementMap.values()).map((result) => result.magnitude));
+    const maxReaction = Math.max(0, ...Array.from(state.analysis.result?.reactions ?? []).map((result) => result.magnitude));
+    const displacementScale = maxDisplacement > 0 ? (0.18 * span) / maxDisplacement : 0;
+    const reactionScale = maxReaction > 0 ? (0.12 * span) / maxReaction : 0;
+
     group.setAttribute(
       'transform',
       `matrix(${state.viewport.zoom} 0 0 ${state.viewport.zoom} ${state.viewport.panX} ${state.viewport.panY})`,
@@ -193,18 +300,95 @@ export class SvgEditor {
     for (const element of state.scene.elements) {
       const polygon = createSvgElement('polygon');
       const points = element.nodeIds
-        .map((nodeId) => state.scene.nodes.find((node) => node.id === nodeId))
+        .map((nodeId) => nodeMap.get(nodeId))
         .filter((node): node is Node => Boolean(node))
         .map((node) => `${node.x},${node.y}`)
         .join(' ');
+      const contourResult = elementResultMap.get(element.id);
+      const contourColor = contourField !== 'none' && contourResult
+        ? getContourColor(getContourValue(contourField, contourResult), contourMin, contourMax)
+        : null;
 
+      polygon.dataset.elementId = element.id;
       polygon.setAttribute('points', points);
       polygon.setAttribute('class', state.selection.elementIds.includes(element.id) ? 'mesh-element selected' : 'mesh-element');
+      if (contourColor) {
+        polygon.style.fill = contourColor;
+      }
       group.append(polygon);
     }
 
+    if (state.analysis.status === 'success' && state.visualization.showDeformedMesh) {
+      for (const element of state.scene.elements) {
+        const polygon = createSvgElement('polygon');
+        const points = element.nodeIds
+          .map((nodeId) => {
+            const node = nodeMap.get(nodeId);
+            const displacement = displacementMap.get(nodeId);
+
+            if (!node) {
+              return null;
+            }
+
+            return {
+              x: node.x + (displacement?.ux ?? 0) * state.visualization.deformationScale,
+              y: node.y + (displacement?.uy ?? 0) * state.visualization.deformationScale,
+            };
+          })
+          .filter((point): point is { x: number; y: number } => Boolean(point))
+          .map((point) => `${point.x},${point.y}`)
+          .join(' ');
+
+        polygon.setAttribute('points', points);
+        polygon.setAttribute('class', 'deformed-element');
+        group.append(polygon);
+      }
+    }
+
+    if (state.analysis.status === 'success' && state.visualization.showDisplacementVectors) {
+      for (const node of state.scene.nodes) {
+        const displacement = displacementMap.get(node.id);
+
+        if (!displacement || displacement.magnitude <= 1e-12) {
+          continue;
+        }
+
+        const line = createSvgElement('line');
+        line.setAttribute('x1', `${node.x}`);
+        line.setAttribute('y1', `${node.y}`);
+        line.setAttribute('x2', `${node.x + displacement.ux * displacementScale}`);
+        line.setAttribute('y2', `${node.y + displacement.uy * displacementScale}`);
+        line.setAttribute('class', 'displacement-vector');
+        line.setAttribute('marker-end', 'url(#displacement-arrowhead)');
+        group.append(line);
+      }
+    }
+
+    if (state.analysis.status === 'success' && state.visualization.showReactionVectors) {
+      for (const reaction of state.analysis.result?.reactions ?? []) {
+        if (reaction.magnitude <= 1e-12) {
+          continue;
+        }
+
+        const node = nodeMap.get(reaction.nodeId);
+
+        if (!node) {
+          continue;
+        }
+
+        const line = createSvgElement('line');
+        line.setAttribute('x1', `${node.x}`);
+        line.setAttribute('y1', `${node.y}`);
+        line.setAttribute('x2', `${node.x + reaction.rx * reactionScale}`);
+        line.setAttribute('y2', `${node.y + reaction.ry * reactionScale}`);
+        line.setAttribute('class', 'reaction-vector');
+        line.setAttribute('marker-end', 'url(#reaction-arrowhead)');
+        group.append(line);
+      }
+    }
+
     for (const support of state.scene.supports) {
-      const node = state.scene.nodes.find((candidate) => candidate.id === support.nodeId);
+      const node = nodeMap.get(support.nodeId);
 
       if (!node) {
         continue;
@@ -217,7 +401,7 @@ export class SvgEditor {
     }
 
     for (const load of state.scene.loads) {
-      const node = state.scene.nodes.find((candidate) => candidate.id === load.nodeId);
+      const node = nodeMap.get(load.nodeId);
 
       if (!node) {
         continue;
@@ -272,6 +456,130 @@ export class SvgEditor {
       label.textContent = node.id;
       group.append(label);
     }
+
+    return group;
+  }
+
+  private buildOverlay(state: AppState, width: number): SVGGElement {
+    const group = createSvgElement('g');
+
+    if (state.analysis.status !== 'success' || !state.analysis.result) {
+      return group;
+    }
+
+    const legendX = width - 226;
+    const legendY = 24;
+    const panelHeight = state.visualization.contourField === 'none' ? 132 : 172;
+    const panel = createSvgElement('rect');
+    panel.setAttribute('x', `${legendX}`);
+    panel.setAttribute('y', `${legendY}`);
+    panel.setAttribute('width', '198');
+    panel.setAttribute('height', `${panelHeight}`);
+    panel.setAttribute('rx', '18');
+    panel.setAttribute('class', 'overlay-panel');
+    group.append(panel);
+
+    const title = createSvgElement('text');
+    title.setAttribute('x', `${legendX + 16}`);
+    title.setAttribute('y', `${legendY + 24}`);
+    title.setAttribute('class', 'overlay-title');
+    title.textContent = 'Visualization';
+    group.append(title);
+
+    let currentY = legendY + 46;
+
+    if (state.visualization.contourField !== 'none') {
+      const values = state.analysis.result.elementResults.map((result) => getContourValue(state.visualization.contourField, result));
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const gradient = createSvgElement('linearGradient');
+      gradient.setAttribute('id', 'contour-legend-gradient');
+      gradient.setAttribute('x1', '0%');
+      gradient.setAttribute('x2', '100%');
+      gradient.setAttribute('y1', '0%');
+      gradient.setAttribute('y2', '0%');
+      const stops: Array<[string, string]> = [
+        ['0%', 'rgb(49, 92, 121)'],
+        ['50%', 'rgb(238, 228, 205)'],
+        ['100%', 'rgb(159, 76, 44)'],
+      ];
+
+      stops.forEach(([offset, color]) => {
+        const stop = createSvgElement('stop');
+        stop.setAttribute('offset', offset);
+        stop.setAttribute('stop-color', color);
+        gradient.append(stop);
+      });
+      const defs = this.svg.querySelector('defs');
+      defs?.append(gradient);
+
+      const contourLabel = createSvgElement('text');
+      contourLabel.setAttribute('x', `${legendX + 16}`);
+      contourLabel.setAttribute('y', `${currentY}`);
+      contourLabel.setAttribute('class', 'overlay-copy');
+      contourLabel.textContent = `Contour: ${state.visualization.contourField}`;
+      group.append(contourLabel);
+
+      const gradientRect = createSvgElement('rect');
+      gradientRect.setAttribute('x', `${legendX + 16}`);
+      gradientRect.setAttribute('y', `${currentY + 10}`);
+      gradientRect.setAttribute('width', '166');
+      gradientRect.setAttribute('height', '14');
+      gradientRect.setAttribute('rx', '7');
+      gradientRect.setAttribute('fill', 'url(#contour-legend-gradient)');
+      group.append(gradientRect);
+
+      const minLabel = createSvgElement('text');
+      minLabel.setAttribute('x', `${legendX + 16}`);
+      minLabel.setAttribute('y', `${currentY + 39}`);
+      minLabel.setAttribute('class', 'overlay-copy');
+      minLabel.textContent = minValue.toFixed(3);
+      group.append(minLabel);
+
+      const maxLabel = createSvgElement('text');
+      maxLabel.setAttribute('x', `${legendX + 182}`);
+      maxLabel.setAttribute('y', `${currentY + 39}`);
+      maxLabel.setAttribute('text-anchor', 'end');
+      maxLabel.setAttribute('class', 'overlay-copy');
+      maxLabel.textContent = maxValue.toFixed(3);
+      group.append(maxLabel);
+
+      currentY += 58;
+    }
+
+    const displacementKey = createSvgElement('line');
+    displacementKey.setAttribute('x1', `${legendX + 16}`);
+    displacementKey.setAttribute('y1', `${currentY}`);
+    displacementKey.setAttribute('x2', `${legendX + 44}`);
+    displacementKey.setAttribute('y2', `${currentY}`);
+    displacementKey.setAttribute('class', 'displacement-vector');
+    displacementKey.setAttribute('marker-end', 'url(#displacement-arrowhead)');
+    group.append(displacementKey);
+
+    const displacementLabel = createSvgElement('text');
+    displacementLabel.setAttribute('x', `${legendX + 54}`);
+    displacementLabel.setAttribute('y', `${currentY + 4}`);
+    displacementLabel.setAttribute('class', 'overlay-copy');
+    displacementLabel.textContent = `Displacement vectors ${state.visualization.showDisplacementVectors ? 'on' : 'off'}`;
+    group.append(displacementLabel);
+
+    currentY += 24;
+
+    const reactionKey = createSvgElement('line');
+    reactionKey.setAttribute('x1', `${legendX + 16}`);
+    reactionKey.setAttribute('y1', `${currentY}`);
+    reactionKey.setAttribute('x2', `${legendX + 44}`);
+    reactionKey.setAttribute('y2', `${currentY}`);
+    reactionKey.setAttribute('class', 'reaction-vector');
+    reactionKey.setAttribute('marker-end', 'url(#reaction-arrowhead)');
+    group.append(reactionKey);
+
+    const reactionLabel = createSvgElement('text');
+    reactionLabel.setAttribute('x', `${legendX + 54}`);
+    reactionLabel.setAttribute('y', `${currentY + 4}`);
+    reactionLabel.setAttribute('class', 'overlay-copy');
+    reactionLabel.textContent = `Reaction vectors ${state.visualization.showReactionVectors ? 'on' : 'off'}`;
+    group.append(reactionLabel);
 
     return group;
   }

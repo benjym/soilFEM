@@ -36,7 +36,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
     font: inherit;
 }
 
@@ -106,6 +107,7 @@ button:hover {
 }
 
 .topbar-actions {
+    width: 75%;
     display: flex;
     flex-wrap: wrap;
     gap: 0.7rem;
@@ -144,6 +146,60 @@ button:hover {
     gap: 0.75rem;
 }
 
+.control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.labelled-field,
+.checkbox-row {
+    display: grid;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.labelled-field span,
+.checkbox-row span {
+    color: var(--ink-soft);
+    font-size: 0.8rem;
+}
+
+.labelled-field input,
+.checkbox-row input,
+.labelled-field select {
+    accent-color: var(--accent);
+}
+
+.labelled-field input[type='number'],
+.labelled-field select {
+    width: 100%;
+    border-radius: 16px;
+    border: 1px solid rgba(88, 67, 42, 0.18);
+    background: rgba(255, 251, 243, 0.95);
+    padding: 0.65rem 0.8rem;
+    color: inherit;
+}
+
+.control-span-2 {
+    grid-column: span 2;
+}
+
+.checkbox-row {
+    grid-template-columns: auto 1fr;
+    border-radius: 18px;
+    border: 1px solid rgba(88, 67, 42, 0.12);
+    background: rgba(255, 251, 243, 0.8);
+    padding: 0.7rem 0.8rem;
+}
+
+.primary-action {
+    width: 50%;
+    background: linear-gradient(135deg, rgba(62, 93, 111, 0.92), rgba(42, 70, 86, 0.96));
+    color: #f8f2eb;
+    border-color: transparent;
+}
+
 .tool-button {
     display: flex;
     align-items: center;
@@ -159,6 +215,7 @@ button:hover {
 }
 
 .viewport-panel {
+    /* height: 100%; */
     display: grid;
     grid-template-rows: auto 1fr;
     overflow: hidden;
@@ -204,6 +261,26 @@ button:hover {
     stroke: var(--accent-strong);
 }
 
+.deformed-element {
+    fill: rgba(24, 83, 115, 0.08);
+    stroke: rgba(24, 83, 115, 0.9);
+    stroke-width: 1.4;
+    stroke-dasharray: 5 3;
+    pointer-events: none;
+}
+
+.displacement-vector {
+    stroke: rgba(24, 83, 115, 0.92);
+    stroke-width: 1.8;
+    pointer-events: none;
+}
+
+.reaction-vector {
+    stroke: rgba(141, 36, 53, 0.92);
+    stroke-width: 1.8;
+    pointer-events: none;
+}
+
 .mesh-node {
     fill: var(--node);
     stroke: var(--mesh-stroke);
@@ -240,6 +317,23 @@ button:hover {
 
 .node-label {
     fill: rgba(31, 29, 27, 0.8);
+    font-size: 10px;
+}
+
+.overlay-panel {
+    fill: rgba(255, 251, 243, 0.92);
+    stroke: rgba(88, 67, 42, 0.16);
+    stroke-width: 1;
+}
+
+.overlay-title {
+    fill: rgba(31, 29, 27, 0.92);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.overlay-copy {
+    fill: rgba(31, 29, 27, 0.82);
     font-size: 10px;
 }
 
@@ -303,5 +397,13 @@ button:hover {
 
     .stat-grid {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .control-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .control-span-2 {
+        grid-column: span 1;
     }
 }
