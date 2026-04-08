@@ -4,6 +4,40 @@ import { druckerPragerSlopeScene } from '../../examples/druckerPragerSlopeScene'
 import { solveLinearElasticPlaneStrain } from './solveLinearElasticPlaneStrain';
 import type { AnalysisScene } from '../../model/types';
 
+function computeTotalAppliedLoad(scene: AnalysisScene): { x: number; y: number } {
+  const nodalLoad = scene.loads.reduce(
+    (sum, load) => ({ x: sum.x + load.fx, y: sum.y + load.fy }),
+    { x: 0, y: 0 },
+  );
+
+  if (!scene.gravity.enabled) {
+    return nodalLoad;
+  }
+
+  const nodesById = new Map(scene.nodes.map((node) => [node.id, node]));
+  const materialsById = new Map(scene.materials.map((material) => [material.id, material]));
+
+  return scene.elements.reduce((sum, element) => {
+    const [first, second, third] = element.nodeIds.map((nodeId) => nodesById.get(nodeId));
+    const material = materialsById.get(element.materialId);
+
+    if (!first || !second || !third || !material) {
+      throw new Error('Test scene is missing nodes or materials referenced by an element.');
+    }
+
+    const area = Math.abs(
+      first.x * (second.y - third.y) +
+      second.x * (third.y - first.y) +
+      third.x * (first.y - second.y),
+    ) / 2;
+
+    return {
+      x: sum.x + area * material.density * scene.gravity.x,
+      y: sum.y + area * material.density * scene.gravity.y,
+    };
+  }, nodalLoad);
+}
+
 const druckerPragerScene: AnalysisScene = {
   ...defaultScene,
   materials: [
@@ -13,6 +47,7 @@ const druckerPragerScene: AnalysisScene = {
       kind: 'drucker-prager-plane-strain',
       youngModulus: 20_000,
       poissonRatio: 0.3,
+      density: 2_000,
       beta: 0.2,
       mu: 1.1,
       exponent: 1,
@@ -30,8 +65,9 @@ const terraCottaScene: AnalysisScene = {
       id: 'material-1',
       name: 'Terra Cotta Soil',
       kind: 'terra-cotta-plane-strain',
-      youngModulus: 20_000,
-      poissonRatio: 0.3,
+      bulkModulus: 16_666.666666666668,
+      shearModulus: 7_692.307692307692,
+      density: 2_000,
       initialConfinement: 2,
       solidFraction: 0.62,
       mesoTemperature: 0,
@@ -55,11 +91,10 @@ describe('solveLinearElasticPlaneStrain', () => {
     const result = solveLinearElasticPlaneStrain(defaultScene);
     const totalReactionX = result.reactions.reduce((sum, reaction) => sum + reaction.rx, 0);
     const totalReactionY = result.reactions.reduce((sum, reaction) => sum + reaction.ry, 0);
-    const totalLoadX = defaultScene.loads.reduce((sum, load) => sum + load.fx, 0);
-    const totalLoadY = defaultScene.loads.reduce((sum, load) => sum + load.fy, 0);
+    const totalLoad = computeTotalAppliedLoad(defaultScene);
 
-    expect(totalReactionX + totalLoadX).toBeCloseTo(0, 8);
-    expect(totalReactionY + totalLoadY).toBeCloseTo(0, 8);
+    expect(totalReactionX + totalLoad.x).toBeCloseTo(0, 8);
+    expect(totalReactionY + totalLoad.y).toBeCloseTo(0, 8);
   });
 
   it('produces a downward displacement at the loaded top node', () => {
@@ -74,11 +109,10 @@ describe('solveLinearElasticPlaneStrain', () => {
     const result = solveLinearElasticPlaneStrain(druckerPragerScene);
     const totalReactionX = result.reactions.reduce((sum, reaction) => sum + reaction.rx, 0);
     const totalReactionY = result.reactions.reduce((sum, reaction) => sum + reaction.ry, 0);
-    const totalLoadX = druckerPragerScene.loads.reduce((sum, load) => sum + load.fx, 0);
-    const totalLoadY = druckerPragerScene.loads.reduce((sum, load) => sum + load.fy, 0);
+    const totalLoad = computeTotalAppliedLoad(druckerPragerScene);
 
-    expect(totalReactionX + totalLoadX).toBeCloseTo(0, 6);
-    expect(totalReactionY + totalLoadY).toBeCloseTo(0, 6);
+    expect(totalReactionX + totalLoad.x).toBeCloseTo(0, 6);
+    expect(totalReactionY + totalLoad.y).toBeCloseTo(0, 6);
     expect(result.elementResults.every((element) => Number.isFinite(element.stress.meanStress))).toBe(true);
     expect(result.displacements.find((displacement) => displacement.nodeId === 'node-3')?.uy).toBeLessThan(0);
   });
@@ -98,11 +132,10 @@ describe('solveLinearElasticPlaneStrain', () => {
     const result = solveLinearElasticPlaneStrain(terraCottaScene);
     const totalReactionX = result.reactions.reduce((sum, reaction) => sum + reaction.rx, 0);
     const totalReactionY = result.reactions.reduce((sum, reaction) => sum + reaction.ry, 0);
-    const totalLoadX = terraCottaScene.loads.reduce((sum, load) => sum + load.fx, 0);
-    const totalLoadY = terraCottaScene.loads.reduce((sum, load) => sum + load.fy, 0);
+    const totalLoad = computeTotalAppliedLoad(terraCottaScene);
 
-    expect(totalReactionX + totalLoadX).toBeCloseTo(0, 5);
-    expect(totalReactionY + totalLoadY).toBeCloseTo(0, 5);
+    expect(totalReactionX + totalLoad.x).toBeCloseTo(0, 5);
+    expect(totalReactionY + totalLoad.y).toBeCloseTo(0, 5);
     expect(result.elementResults.every((element) => Number.isFinite(element.stress.meanStress))).toBe(true);
     expect(result.elementResults.every((element) => Number.isFinite(element.stress.deviatoricStress))).toBe(true);
     expect(result.displacements.find((displacement) => displacement.nodeId === 'node-3')?.uy).toBeLessThan(0);

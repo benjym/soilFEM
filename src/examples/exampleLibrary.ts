@@ -18,8 +18,8 @@ export const exampleScenes: ExampleSceneDefinition[] = [
   },
   {
     id: 'drucker-prager-slope',
-    label: 'DP Slope Stability',
-    description: 'Prebuilt slope mesh with Drucker-Prager material and gravity-style nodal loading.',
+    label: 'Slope Stability',
+    description: 'Prebuilt slope mesh with Drucker-Prager material and scene-level gravity body loading.',
     scene: druckerPragerSlopeScene,
   },
 ];

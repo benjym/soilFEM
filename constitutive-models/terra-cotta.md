@@ -40,6 +40,8 @@ $$
 
 Paper Eq. (8) splits the internal energy into elastic and meso-related parts:
 
+For implementation purposes, this model is parameterized directly by the intrinsic stiffnesses $\tilde K$ and $\tilde G$; it is not posed in terms of Young's modulus $E$ and Poisson ratio $\nu$.
+
 $$
 u = u^e(\phi, \varepsilon_{ij}^e) + u^m(s^m),
 $$

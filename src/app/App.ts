@@ -34,7 +34,7 @@ const materialKindMeta: Array<{ value: MaterialKind; label: string }> = [
   { value: 'terra-cotta-plane-strain', label: 'Terra Cotta' },
 ];
 
-const baseMaterialFieldMeta: Array<{
+const elasticMaterialFieldMeta: Array<{
   field: Extract<MaterialNumericField, 'youngModulus' | 'poissonRatio'>;
   label: string;
   min?: number;
@@ -43,6 +43,25 @@ const baseMaterialFieldMeta: Array<{
 }> = [
   { field: 'youngModulus', label: 'Young modulus E', min: 1e-9, step: '100' },
   { field: 'poissonRatio', label: 'Poisson ratio nu', min: -0.99, max: 0.49, step: '0.01' },
+];
+
+const sharedMaterialFieldMeta: Array<{
+  field: Extract<MaterialNumericField, 'density'>;
+  label: string;
+  min?: number;
+  step: string;
+}> = [
+  { field: 'density', label: 'Density ρ', min: 0, step: 'any' },
+];
+
+const terraCottaElasticFieldMeta: Array<{
+  field: Extract<MaterialNumericField, 'bulkModulus' | 'shearModulus'>;
+  label: string;
+  min?: number;
+  step: string;
+}> = [
+  { field: 'bulkModulus', label: 'Intrinsic bulk stiffness K~', min: 1e-9, step: '0.1' },
+  { field: 'shearModulus', label: 'Intrinsic shear stiffness G~', min: 1e-9, step: '0.1' },
 ];
 
 const druckerPragerFieldMeta: Array<{
@@ -82,17 +101,17 @@ const terraCottaFieldMeta: Array<{
   max?: number;
   step: string;
 }> = [
-  { field: 'initialConfinement', label: 'Initial confinement p0', min: 0, step: '0.1' },
-  { field: 'solidFraction', label: 'Solid fraction phi', min: 1e-6, max: 0.999999, step: '0.01' },
+  { field: 'initialConfinement', label: 'Initial confinement p₀', min: 0, step: '0.1' },
+  { field: 'solidFraction', label: 'Solid fraction φ', min: 1e-6, max: 0.999999, step: '0.01' },
   { field: 'mesoTemperature', label: 'Meso-temperature Tm', min: 0, step: '0.01' },
-  { field: 'energyCoupling', label: 'Energy coupling Gamma', min: 1e-9, step: '0.1' },
+  { field: 'energyCoupling', label: 'Energy coupling Γ', min: 1e-9, step: '0.1' },
   { field: 'criticalStateSlope', label: 'Critical state slope M', min: 1e-9, step: '0.01' },
-  { field: 'omega', label: 'Omega', min: 1e-9, step: '0.01' },
-  { field: 'compressionIndex', label: 'Compression index lambda', min: 1e-9, step: '0.1' },
-  { field: 'referenceSolidFraction', label: 'Reference solid frac phi_I', min: 1e-6, max: 0.999999, step: '0.01' },
+  { field: 'omega', label: 'Omega ω', min: 1e-9, step: '0.01' },
+  { field: 'compressionIndex', label: 'Compression index λ', min: 1e-9, step: '0.1' },
+  { field: 'referenceSolidFraction', label: 'Reference solid frac φ_I', min: 1e-6, max: 0.999999, step: '0.01' },
   { field: 'volumetricCoefficient', label: 'Volumetric coeff a', min: 1e-9, step: '0.01' },
   { field: 'deviatoricCoefficient', label: 'Deviatoric coeff c', min: 1e-9, step: '0.01' },
-  { field: 'dissipation', label: 'Dissipation eta', min: 1e-9, step: '0.01' },
+  { field: 'dissipation', label: 'Dissipation η', min: 1e-9, step: '0.01' },
   { field: 'loadSteps', label: 'Load steps', min: 1, step: '1' },
   { field: 'maxIterations', label: 'Max iterations', min: 1, step: '1' },
   { field: 'tolerance', label: 'Tolerance', min: 1e-12, step: 'any' },
@@ -114,6 +133,9 @@ function isMaterialNumericField(value: string): value is MaterialNumericField {
   return [
     'youngModulus',
     'poissonRatio',
+    'bulkModulus',
+    'shearModulus',
+    'density',
     'beta',
     'mu',
     'exponent',
@@ -148,6 +170,12 @@ function getMaterialFieldErrorMessage(material: Material, field: MaterialNumeric
       return 'Young modulus must be positive.';
     case 'poissonRatio':
       return 'Poisson ratio must stay between -1 and 0.5.';
+    case 'bulkModulus':
+      return 'Intrinsic bulk stiffness must be positive.';
+    case 'shearModulus':
+      return 'Intrinsic shear stiffness must be positive.';
+    case 'density':
+      return 'Density must be zero or positive.';
     case 'beta':
       return 'Beta must be zero or positive.';
     case 'mu':
@@ -192,9 +220,15 @@ function getMaterialFieldErrorMessage(material: Material, field: MaterialNumeric
 function getMaterialFieldValue(material: Material, field: MaterialNumericField): number | null {
   switch (field) {
     case 'youngModulus':
-      return material.youngModulus;
+      return material.kind !== 'terra-cotta-plane-strain' ? material.youngModulus : null;
     case 'poissonRatio':
-      return material.poissonRatio;
+      return material.kind !== 'terra-cotta-plane-strain' ? material.poissonRatio : null;
+    case 'bulkModulus':
+      return material.kind === 'terra-cotta-plane-strain' ? material.bulkModulus : null;
+    case 'shearModulus':
+      return material.kind === 'terra-cotta-plane-strain' ? material.shearModulus : null;
+    case 'density':
+      return material.density;
     case 'beta':
       return material.kind === 'drucker-prager-plane-strain' ? material.beta : null;
     case 'mu':
@@ -245,9 +279,15 @@ function parseMaterialFieldValue(material: Material, field: MaterialNumericField
 
   switch (field) {
     case 'youngModulus':
-      return parsed > 0 ? parsed : null;
+      return material.kind !== 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
     case 'poissonRatio':
-      return parsed > -0.999 && parsed < 0.5 ? parsed : null;
+      return material.kind !== 'terra-cotta-plane-strain' && parsed > -0.999 && parsed < 0.5 ? parsed : null;
+    case 'bulkModulus':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'shearModulus':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'density':
+      return parsed >= 0 ? parsed : null;
     case 'beta':
       return material.kind === 'drucker-prager-plane-strain' && parsed >= 0 ? parsed : null;
     case 'mu':
@@ -346,7 +386,10 @@ function renderMaterialPanel(
   const cards = materials.map((material) => {
     const elementCount = elements.filter((element) => element.materialId === material.id).length;
     const selectedCount = elements.filter((element) => element.materialId === material.id && selectedElementIdSet.has(element.id)).length;
-    const commonFields = baseMaterialFieldMeta
+    const sharedFields = sharedMaterialFieldMeta
+      .map((fieldMeta) => renderMaterialInput(material, fieldMeta.field, fieldMeta.label, fieldMeta.step, validationErrors, fieldMeta.min))
+      .join('');
+    const elasticFields = elasticMaterialFieldMeta
       .map((fieldMeta) => renderMaterialInput(material, fieldMeta.field, fieldMeta.label, fieldMeta.step, validationErrors, fieldMeta.min, fieldMeta.max))
       .join('');
 
@@ -376,7 +419,7 @@ function renderMaterialPanel(
       return `
         <div class="material-card">
           ${header}
-          <div class="control-grid material-grid">${commonFields}</div>
+          <div class="control-grid material-grid">${sharedFields}${elasticFields}</div>
         </div>
       `;
     }
@@ -389,12 +432,15 @@ function renderMaterialPanel(
       return `
         <div class="material-card">
           ${header}
-          <div class="control-grid material-grid">${commonFields}${druckerPragerFields}</div>
+          <div class="control-grid material-grid">${sharedFields}${elasticFields}${druckerPragerFields}</div>
           <p class="material-note">Nonlinear solver controls apply when this material is present in the scene.</p>
         </div>
       `;
     }
 
+    const terraCottaElasticFields = terraCottaElasticFieldMeta
+      .map((fieldMeta) => renderMaterialInput(material, fieldMeta.field, fieldMeta.label, fieldMeta.step, validationErrors, fieldMeta.min))
+      .join('');
     const terraCottaFields = terraCottaFieldMeta
       .map((fieldMeta) => renderMaterialInput(material, fieldMeta.field, fieldMeta.label, fieldMeta.step, validationErrors, fieldMeta.min, fieldMeta.max))
       .join('');
@@ -402,8 +448,8 @@ function renderMaterialPanel(
     return `
       <div class="material-card">
         ${header}
-        <div class="control-grid material-grid">${commonFields}${terraCottaFields}</div>
-        <p class="material-note">Terra Cotta uses a local explicit internal-variable update with numerical tangent estimation inside the nonlinear solver.</p>
+        <div class="control-grid material-grid">${sharedFields}${terraCottaElasticFields}${terraCottaFields}</div>
+        <p class="material-note">Terra Cotta uses intrinsic nonlinear elastic stiffnesses K~ and G~, not Young's modulus and Poisson ratio.</p>
       </div>
     `;
   }).join('');
@@ -452,6 +498,25 @@ export function createApp(root: HTMLElement): void {
               <label class="labelled-field control-span-2">
                 <select data-role="example-scene"></select>
               </label>
+            </div>
+          </section>
+          <section>
+            <p class="panel-label">Gravity</p>
+            <div class="control-grid">
+              <label class="checkbox-row control-span-2">
+                <input type="checkbox" data-role="gravity-enabled" />
+                <span>Enable gravity body force</span>
+              </label>
+              <div class="control-grid control-span-2" data-role="gravity-vector-controls">
+                <label class="labelled-field">
+                  <span>gx</span>
+                  <input type="number" step="any" data-role="gravity-x" />
+                </label>
+                <label class="labelled-field">
+                  <span>gy</span>
+                  <input type="number" step="any" data-role="gravity-y" />
+                </label>
+              </div>
             </div>
           </section>
           <section>
@@ -542,6 +607,10 @@ export function createApp(root: HTMLElement): void {
   const statusPill = root.querySelector<HTMLDivElement>('[data-role="status-pill"]');
   const importInput = root.querySelector<HTMLInputElement>('[data-role="import-file"]');
   const exampleSceneSelect = root.querySelector<HTMLSelectElement>('[data-role="example-scene"]');
+  const gravityEnabledInput = root.querySelector<HTMLInputElement>('[data-role="gravity-enabled"]');
+  const gravityVectorControls = root.querySelector<HTMLDivElement>('[data-role="gravity-vector-controls"]');
+  const gravityXInput = root.querySelector<HTMLInputElement>('[data-role="gravity-x"]');
+  const gravityYInput = root.querySelector<HTMLInputElement>('[data-role="gravity-y"]');
   const meshDialog = root.querySelector<HTMLDialogElement>('[data-role="mesh-dialog"]');
   const meshWidthInput = root.querySelector<HTMLInputElement>('[data-role="mesh-width"]');
   const meshHeightInput = root.querySelector<HTMLInputElement>('[data-role="mesh-height"]');
@@ -558,7 +627,7 @@ export function createApp(root: HTMLElement): void {
   const solveButton = root.querySelector<HTMLButtonElement>('[data-action="solve-linear"]');
   const generateMeshButton = root.querySelector<HTMLButtonElement>('[data-action="generate-mesh"]');
 
-  if (!toolList || !svg || !editorNotice || !materialPanel || !statusPill || !importInput || !exampleSceneSelect || !meshDialog || !meshWidthInput || !meshHeightInput || !meshDivisionsXInput || !meshDivisionsYInput || !contourFieldSelect || !deformationScaleInput || !showDeformedInput || !showDisplacementVectorsInput || !showReactionVectorsInput || !exportButton || !importButton || !resetButton || !solveButton || !generateMeshButton) {
+  if (!toolList || !svg || !editorNotice || !materialPanel || !statusPill || !importInput || !exampleSceneSelect || !gravityEnabledInput || !gravityVectorControls || !gravityXInput || !gravityYInput || !meshDialog || !meshWidthInput || !meshHeightInput || !meshDivisionsXInput || !meshDivisionsYInput || !contourFieldSelect || !deformationScaleInput || !showDeformedInput || !showDisplacementVectorsInput || !showReactionVectorsInput || !exportButton || !importButton || !resetButton || !solveButton || !generateMeshButton) {
     throw new Error('App shell is missing required DOM nodes.');
   }
 
@@ -683,6 +752,16 @@ export function createApp(root: HTMLElement): void {
     });
   };
 
+  const updateGravity = (): void => {
+    const current = store.getState().scene.gravity;
+
+    store.setGravity({
+      enabled: gravityEnabledInput.checked,
+      x: parseNumber(gravityXInput.value, current.x),
+      y: parseNumber(gravityYInput.value, current.y),
+    });
+  };
+
   const renderCurrentState = (): void => {
     renderPanels(
       store.getState(),
@@ -695,6 +774,10 @@ export function createApp(root: HTMLElement): void {
         meshHeightInput,
         meshDivisionsXInput,
         meshDivisionsYInput,
+        gravityEnabledInput,
+        gravityVectorControls,
+        gravityXInput,
+        gravityYInput,
         contourFieldSelect,
         deformationScaleInput,
         showDeformedInput,
@@ -709,6 +792,9 @@ export function createApp(root: HTMLElement): void {
   meshHeightInput.addEventListener('input', updateMeshDraft);
   meshDivisionsXInput.addEventListener('input', updateMeshDraft);
   meshDivisionsYInput.addEventListener('input', updateMeshDraft);
+  gravityEnabledInput.addEventListener('input', updateGravity);
+  gravityXInput.addEventListener('change', updateGravity);
+  gravityYInput.addEventListener('change', updateGravity);
   contourFieldSelect.addEventListener('input', updateVisualization);
   deformationScaleInput.addEventListener('input', updateVisualization);
   showDeformedInput.addEventListener('input', updateVisualization);
@@ -831,9 +917,9 @@ export function createApp(root: HTMLElement): void {
     store.generateStructuredMesh();
     meshDialog.close();
   });
-  loadSelectedExample();
-
   store.subscribe(() => renderCurrentState());
+  loadSelectedExample();
+  renderCurrentState();
 }
 
 interface ControlRefs {
@@ -841,6 +927,10 @@ interface ControlRefs {
   meshHeightInput: HTMLInputElement;
   meshDivisionsXInput: HTMLInputElement;
   meshDivisionsYInput: HTMLInputElement;
+  gravityEnabledInput: HTMLInputElement;
+  gravityVectorControls: HTMLDivElement;
+  gravityXInput: HTMLInputElement;
+  gravityYInput: HTMLInputElement;
   contourFieldSelect: HTMLSelectElement;
   deformationScaleInput: HTMLInputElement;
   showDeformedInput: HTMLInputElement;
@@ -875,6 +965,10 @@ function renderPanels(
   controls.meshHeightInput.value = `${state.meshDraft.height}`;
   controls.meshDivisionsXInput.value = `${state.meshDraft.divisionsX}`;
   controls.meshDivisionsYInput.value = `${state.meshDraft.divisionsY}`;
+  controls.gravityEnabledInput.checked = state.scene.gravity.enabled;
+  controls.gravityVectorControls.hidden = !state.scene.gravity.enabled;
+  controls.gravityXInput.value = `${state.scene.gravity.x}`;
+  controls.gravityYInput.value = `${state.scene.gravity.y}`;
   controls.contourFieldSelect.value = state.visualization.contourField;
   controls.deformationScaleInput.value = `${state.visualization.deformationScale}`;
   controls.showDeformedInput.checked = state.visualization.showDeformedMesh;

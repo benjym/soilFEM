@@ -6,6 +6,7 @@ interface ElementRuntime {
   elementId: string;
   nodeIds: [string, string, string];
   materialId: string;
+  material: Material;
   nodes: [Node, Node, Node];
   area: number;
   bMatrix: ReturnType<typeof computeCstTriangleKinematics>['bMatrix'];
@@ -78,6 +79,23 @@ function computeElementInternalForce(
   }
 
   return nodalForces;
+}
+
+function computeElementBodyForce(
+  area: number,
+  bodyForce: { x: number; y: number },
+  thickness = 1,
+): [number, number, number, number, number, number] {
+  const nodalWeight = (area * thickness) / 3;
+
+  return [
+    bodyForce.x * nodalWeight,
+    bodyForce.y * nodalWeight,
+    bodyForce.x * nodalWeight,
+    bodyForce.y * nodalWeight,
+    bodyForce.x * nodalWeight,
+    bodyForce.y * nodalWeight,
+  ];
 }
 
 function solveDenseLinearSystem(matrix: number[][], vector: number[]): number[] {
@@ -178,6 +196,7 @@ function createElementRuntimes(
       elementId: element.id,
       nodeIds: element.nodeIds,
       materialId: element.materialId,
+      material,
       nodes,
       area,
       bMatrix,
@@ -295,6 +314,19 @@ export function solveLinearElasticPlaneStrain(scene: AnalysisScene): LinearElast
 
     loadVector[nodeIndex * 2] += load.fx;
     loadVector[nodeIndex * 2 + 1] += load.fy;
+  }
+
+  if (scene.gravity.enabled) {
+    for (const runtime of runtimes) {
+      const elementBodyForce = computeElementBodyForce(runtime.area, {
+        x: runtime.material.density * scene.gravity.x,
+        y: runtime.material.density * scene.gravity.y,
+      });
+
+      for (let index = 0; index < 6; index += 1) {
+        loadVector[runtime.dofMap[index]] += elementBodyForce[index];
+      }
+    }
   }
 
   const fixedDofs = new Set<number>();

@@ -1,5 +1,4 @@
 import type { TerraCottaPlaneStrainMaterial } from '../../model/types';
-import { createPlaneStrainMaterialResponse } from './linearElasticPlaneStrain';
 import type {
   EngineeringStrain,
   EngineeringStress,
@@ -142,12 +141,8 @@ function isFiniteStressUpdate(update: StressUpdate): boolean {
 }
 
 function validateMaterial(material: TerraCottaPlaneStrainMaterial): void {
-  if (material.youngModulus <= 0) {
-    throw new Error('Terra Cotta Young modulus must be positive.');
-  }
-
-  if (material.poissonRatio <= -1 || material.poissonRatio >= 0.5) {
-    throw new Error('Terra Cotta Poisson ratio must lie in the open interval (-1, 0.5).');
+  if (material.bulkModulus <= 0 || material.shearModulus <= 0) {
+    throw new Error('Terra Cotta bulk and shear moduli must be positive.');
   }
 
   if (material.initialConfinement < 0) {
@@ -200,8 +195,7 @@ function computeTotalGeomechanicsStress(
   elasticStrainTensor: Tensor3x3,
   strainRateTensor: Tensor3x3,
 ): Tensor3x3 {
-  const elastic = createPlaneStrainMaterialResponse(material.youngModulus, material.poissonRatio);
-  const elasticStressTensor = computeElasticStress(elasticStrainTensor, solidFraction, elastic.bulkModulus, elastic.shearModulus);
+  const elasticStressTensor = computeElasticStress(elasticStrainTensor, solidFraction, material.bulkModulus, material.shearModulus);
   const volumetricStrainRate = trace(strainRateTensor);
   const deviatoricStrainRate = deviatoric(strainRateTensor);
   const viscousStressTensor = scaleTensor(
@@ -221,7 +215,6 @@ function createInitialElasticStrain(material: TerraCottaPlaneStrainMaterial): Te
     return [0, 0, 0, 0];
   }
 
-  const elastic = createPlaneStrainMaterialResponse(material.youngModulus, material.poissonRatio);
   const thermodynamicPressure = (material.mesoTemperature * material.mesoTemperature) / material.energyCoupling;
   const elasticPressure = Math.max(0, material.initialConfinement - thermodynamicPressure);
 
@@ -229,7 +222,7 @@ function createInitialElasticStrain(material: TerraCottaPlaneStrainMaterial): Te
     return [0, 0, 0, 0];
   }
 
-  const elasticVolumetricStrain = Math.sqrt((2 * elasticPressure) / ((material.solidFraction ** 6) * elastic.bulkModulus));
+  const elasticVolumetricStrain = Math.sqrt((2 * elasticPressure) / ((material.solidFraction ** 6) * material.bulkModulus));
   const component = elasticVolumetricStrain / 3;
 
   return [component, component, 0, component];
@@ -277,7 +270,6 @@ function estimateSubstepCount(
   material: TerraCottaPlaneStrainMaterial,
   pseudoTimeStep: number,
 ): number {
-  const elastic = createPlaneStrainMaterialResponse(material.youngModulus, material.poissonRatio);
   const totalStrainIncrementTensor = negateTensor(engineeringIncrementToTensor(strainIncrement));
   const strainRateTensor = scaleTensor(totalStrainIncrementTensor, 1 / pseudoTimeStep);
   const volumetricStrainRate = trace(strainRateTensor);
@@ -286,8 +278,8 @@ function estimateSubstepCount(
   const elasticStressTensor = computeElasticStress(
     elasticStrainTensor,
     state.solidFraction,
-    elastic.bulkModulus,
-    elastic.shearModulus,
+    material.bulkModulus,
+    material.shearModulus,
   );
   const plasticStrainRate = computePlasticStrainRate(material, state.solidFraction, state.mesoTemperature, elasticStressTensor);
   const plasticIncrementTensor = scaleTensor(plasticStrainRate, pseudoTimeStep);
@@ -319,7 +311,6 @@ function computeSingleStressUpdate(
 ): StressUpdate {
   validateMaterial(material);
 
-  const elastic = createPlaneStrainMaterialResponse(material.youngModulus, material.poissonRatio);
   const totalStrainIncrementTensor = negateTensor(engineeringIncrementToTensor(strainIncrement));
   const strainRateTensor = scaleTensor(totalStrainIncrementTensor, 1 / pseudoTimeStep);
   const volumetricStrainRate = trace(strainRateTensor);
@@ -328,8 +319,8 @@ function computeSingleStressUpdate(
   const elasticStressTensor = computeElasticStress(
     elasticStrainTensor,
     state.solidFraction,
-    elastic.bulkModulus,
-    elastic.shearModulus,
+    material.bulkModulus,
+    material.shearModulus,
   );
   const plasticStrainRate = computePlasticStrainRate(material, state.solidFraction, state.mesoTemperature, elasticStressTensor);
   const nextElasticStrainTensor = addTensor(

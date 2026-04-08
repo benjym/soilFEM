@@ -184,6 +184,8 @@ describe('AppStore', () => {
 
     const materialId = store.getState().activeMaterialId!;
 
+    store.updateMaterialValue(materialId, 'bulkModulus', 21_000);
+    store.updateMaterialValue(materialId, 'shearModulus', 8_400);
     store.updateMaterialValue(materialId, 'initialConfinement', 3.5);
     store.updateMaterialValue(materialId, 'solidFraction', 0.66);
     store.updateMaterialValue(materialId, 'mesoTemperature', 0.08);
@@ -202,6 +204,8 @@ describe('AppStore', () => {
     expect(store.getState().scene.materials.find((material) => material.id === materialId)).toMatchObject({
       id: materialId,
       kind: 'terra-cotta-plane-strain',
+      bulkModulus: 21_000,
+      shearModulus: 8_400,
       initialConfinement: 3.5,
       solidFraction: 0.66,
       mesoTemperature: 0.08,
@@ -258,17 +262,22 @@ describe('AppStore', () => {
     expect(store.getState().activeMaterialId).toBe(firstMaterialId);
   });
 
-  it('converts a material to Terra Cotta while preserving shared elastic properties', () => {
+  it('converts a material to Terra Cotta while preserving equivalent bulk and shear stiffness', () => {
     const store = new AppStore();
     const firstMaterialId = store.getState().scene.materials[0].id;
 
     store.changeMaterialKind(firstMaterialId, 'terra-cotta-plane-strain');
 
-    expect(store.getState().scene.materials[0]).toMatchObject({
-      id: firstMaterialId,
-      kind: 'terra-cotta-plane-strain',
-      youngModulus: 20_000,
-      poissonRatio: 0.3,
-    });
+    const material = store.getState().scene.materials[0];
+
+    expect(material.id).toBe(firstMaterialId);
+    expect(material.kind).toBe('terra-cotta-plane-strain');
+
+    if (material.kind !== 'terra-cotta-plane-strain') {
+      throw new Error('Expected Terra Cotta material.');
+    }
+
+    expect(material.bulkModulus).toBeCloseTo(16_666.666666666668, 8);
+    expect(material.shearModulus).toBeCloseTo(7_692.307692307692, 8);
   });
 });

@@ -33,6 +33,7 @@ export interface LinearElasticPlaneStrainMaterial {
   kind: 'linear-elastic-plane-strain';
   youngModulus: number;
   poissonRatio: number;
+  density: number;
 }
 
 export interface DruckerPragerPlaneStrainMaterial {
@@ -41,6 +42,7 @@ export interface DruckerPragerPlaneStrainMaterial {
   kind: 'drucker-prager-plane-strain';
   youngModulus: number;
   poissonRatio: number;
+  density: number;
   beta: number;
   mu: number;
   exponent: number;
@@ -53,8 +55,9 @@ export interface TerraCottaPlaneStrainMaterial {
   id: string;
   name: string;
   kind: 'terra-cotta-plane-strain';
-  youngModulus: number;
-  poissonRatio: number;
+  bulkModulus: number;
+  shearModulus: number;
+  density: number;
   initialConfinement: number;
   solidFraction: number;
   mesoTemperature: number;
@@ -77,6 +80,9 @@ export type MaterialKind = Material['kind'];
 export type MaterialNumericField =
   | 'youngModulus'
   | 'poissonRatio'
+  | 'bulkModulus'
+  | 'shearModulus'
+  | 'density'
   | 'beta'
   | 'mu'
   | 'exponent'
@@ -95,12 +101,19 @@ export type MaterialNumericField =
   | 'maxIterations'
   | 'tolerance';
 
+export interface GravitySettings {
+  enabled: boolean;
+  x: number;
+  y: number;
+}
+
 export interface AnalysisScene {
   nodes: Node[];
   elements: Element[];
   supports: Support[];
   loads: NodalLoad[];
   materials: Material[];
+  gravity: GravitySettings;
 }
 
 export interface SelectionState {

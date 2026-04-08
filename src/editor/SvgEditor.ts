@@ -39,6 +39,15 @@ const materialKindPresentation: Record<MaterialKind, { label: string; fill: stri
   },
 };
 
+const contourFieldPresentation: Record<Exclude<ContourField, 'none'>, string> = {
+  meanStress: 'Mean stress p',
+  deviatoricStress: 'Deviatoric stress q',
+  sxx: 'Sigma xx',
+  syy: 'Sigma yy',
+  txy: 'Tau xy',
+  volumetricStrain: 'Volumetric strain',
+};
+
 function getNodeMap(nodes: Node[]): Map<string, Node> {
   return new Map(nodes.map((node) => [node.id, node]));
 }
@@ -118,6 +127,30 @@ function createArrowHead(id: string, color: string): SVGMarkerElement {
   marker.append(path);
 
   return marker;
+}
+
+function createContourLegendGradient(id: string): SVGLinearGradientElement {
+  const gradient = createSvgElement('linearGradient');
+  gradient.setAttribute('id', id);
+  gradient.setAttribute('x1', '0%');
+  gradient.setAttribute('x2', '0%');
+  gradient.setAttribute('y1', '100%');
+  gradient.setAttribute('y2', '0%');
+
+  const stops: Array<[string, string]> = [
+    ['0%', 'rgb(49, 92, 121)'],
+    ['50%', 'rgb(238, 228, 205)'],
+    ['100%', 'rgb(159, 76, 44)'],
+  ];
+
+  for (const [offset, color] of stops) {
+    const stop = createSvgElement('stop');
+    stop.setAttribute('offset', offset);
+    stop.setAttribute('stop-color', color);
+    gradient.append(stop);
+  }
+
+  return gradient;
 }
 
 function appendSupportTicks(group: SVGGElement, points: Array<{ x1: number; y1: number; x2: number; y2: number }>): void {
@@ -386,6 +419,7 @@ export class SvgEditor {
     defs.append(
       createArrowHead('displacement-arrowhead', '#185373'),
       createArrowHead('reaction-arrowhead', '#8d2435'),
+      createContourLegendGradient('contour-legend-gradient'),
     );
 
     this.svg.append(
@@ -627,14 +661,6 @@ export class SvgEditor {
       circle.setAttribute('r', '5.5');
       circle.setAttribute('class', className.join(' '));
       group.append(circle);
-
-      const label = createSvgElement('text');
-      label.setAttribute('x', `${node.x + 8}`);
-      label.setAttribute('y', `${node.y + 8}`);
-      label.setAttribute('class', 'node-label');
-      label.setAttribute('transform', `scale(1 -1) translate(0 ${-2 * (node.y + 8)})`);
-      label.textContent = node.id;
-      group.append(label);
     }
 
     return group;
@@ -696,7 +722,8 @@ export class SvgEditor {
 
     const legendX = width - 226;
     const legendY = 24;
-    const panelHeight = state.visualization.contourField === 'none' ? 132 : 172;
+    const visibleVectorLegendCount = Number(state.visualization.showDisplacementVectors) + Number(state.visualization.showReactionVectors);
+    const panelHeight = (state.visualization.contourField === 'none' ? 58 : 212) + visibleVectorLegendCount * 24;
     const panel = createSvgElement('rect');
     panel.setAttribute('x', `${legendX}`);
     panel.setAttribute('y', `${legendY}`);
@@ -719,94 +746,103 @@ export class SvgEditor {
       const values = state.analysis.result.elementResults.map((result) => getContourValue(state.visualization.contourField, result));
       const minValue = Math.min(...values);
       const maxValue = Math.max(...values);
-      const gradient = createSvgElement('linearGradient');
-      gradient.setAttribute('id', 'contour-legend-gradient');
-      gradient.setAttribute('x1', '0%');
-      gradient.setAttribute('x2', '100%');
-      gradient.setAttribute('y1', '0%');
-      gradient.setAttribute('y2', '0%');
-      const stops: Array<[string, string]> = [
-        ['0%', 'rgb(49, 92, 121)'],
-        ['50%', 'rgb(238, 228, 205)'],
-        ['100%', 'rgb(159, 76, 44)'],
-      ];
-
-      stops.forEach(([offset, color]) => {
-        const stop = createSvgElement('stop');
-        stop.setAttribute('offset', offset);
-        stop.setAttribute('stop-color', color);
-        gradient.append(stop);
-      });
-      const defs = this.svg.querySelector('defs');
-      defs?.append(gradient);
+      const midValue = (minValue + maxValue) / 2;
 
       const contourLabel = createSvgElement('text');
       contourLabel.setAttribute('x', `${legendX + 16}`);
       contourLabel.setAttribute('y', `${currentY}`);
       contourLabel.setAttribute('class', 'overlay-copy');
-      contourLabel.textContent = `Contour: ${state.visualization.contourField}`;
+      contourLabel.textContent = `Contour: ${contourFieldPresentation[state.visualization.contourField]}`;
       group.append(contourLabel);
 
+      const contourBarFrame = createSvgElement('rect');
+      contourBarFrame.setAttribute('x', `${legendX + 18}`);
+      contourBarFrame.setAttribute('y', `${currentY + 12}`);
+      contourBarFrame.setAttribute('width', '18');
+      contourBarFrame.setAttribute('height', '102');
+      contourBarFrame.setAttribute('rx', '9');
+      contourBarFrame.setAttribute('class', 'material-legend-swatch');
+      contourBarFrame.setAttribute('fill', 'none');
+      group.append(contourBarFrame);
+
       const gradientRect = createSvgElement('rect');
-      gradientRect.setAttribute('x', `${legendX + 16}`);
-      gradientRect.setAttribute('y', `${currentY + 10}`);
-      gradientRect.setAttribute('width', '166');
-      gradientRect.setAttribute('height', '14');
-      gradientRect.setAttribute('rx', '7');
+      gradientRect.setAttribute('x', `${legendX + 18}`);
+      gradientRect.setAttribute('y', `${currentY + 12}`);
+      gradientRect.setAttribute('width', '18');
+      gradientRect.setAttribute('height', '102');
+      gradientRect.setAttribute('rx', '9');
       gradientRect.setAttribute('fill', 'url(#contour-legend-gradient)');
       group.append(gradientRect);
 
-      const minLabel = createSvgElement('text');
-      minLabel.setAttribute('x', `${legendX + 16}`);
-      minLabel.setAttribute('y', `${currentY + 39}`);
-      minLabel.setAttribute('class', 'overlay-copy');
-      minLabel.textContent = minValue.toFixed(3);
-      group.append(minLabel);
+      const tickOffsets = [0, 0.5, 1] as const;
+      const tickValues = [maxValue, midValue, minValue] as const;
 
-      const maxLabel = createSvgElement('text');
-      maxLabel.setAttribute('x', `${legendX + 182}`);
-      maxLabel.setAttribute('y', `${currentY + 39}`);
-      maxLabel.setAttribute('text-anchor', 'end');
-      maxLabel.setAttribute('class', 'overlay-copy');
-      maxLabel.textContent = maxValue.toFixed(3);
-      group.append(maxLabel);
+      tickOffsets.forEach((offset, index) => {
+        const tickY = currentY + 12 + offset * 102;
+        const tick = createSvgElement('line');
+        tick.setAttribute('x1', `${legendX + 42}`);
+        tick.setAttribute('y1', `${tickY}`);
+        tick.setAttribute('x2', `${legendX + 50}`);
+        tick.setAttribute('y2', `${tickY}`);
+        tick.setAttribute('stroke', 'rgba(31, 29, 27, 0.55)');
+        tick.setAttribute('stroke-width', '1');
+        group.append(tick);
 
-      currentY += 58;
+        const label = createSvgElement('text');
+        label.setAttribute('x', `${legendX + 58}`);
+        label.setAttribute('y', `${tickY + (index === 1 ? 4 : 3)}`);
+        label.setAttribute('class', 'overlay-copy');
+        label.textContent = tickValues[index].toFixed(3);
+        group.append(label);
+      });
+
+      const rangeLabel = createSvgElement('text');
+      rangeLabel.setAttribute('x', `${legendX + 16}`);
+      rangeLabel.setAttribute('y', `${currentY + 132}`);
+      rangeLabel.setAttribute('class', 'overlay-copy');
+      rangeLabel.textContent = 'Low to high contour range';
+      group.append(rangeLabel);
+
+      currentY += 154;
     }
 
-    const displacementKey = createSvgElement('line');
-    displacementKey.setAttribute('x1', `${legendX + 16}`);
-    displacementKey.setAttribute('y1', `${currentY}`);
-    displacementKey.setAttribute('x2', `${legendX + 44}`);
-    displacementKey.setAttribute('y2', `${currentY}`);
-    displacementKey.setAttribute('class', 'displacement-vector');
-    displacementKey.setAttribute('marker-end', 'url(#displacement-arrowhead)');
-    group.append(displacementKey);
+    if (state.visualization.showDisplacementVectors) {
+      const displacementKey = createSvgElement('line');
+      displacementKey.setAttribute('x1', `${legendX + 16}`);
+      displacementKey.setAttribute('y1', `${currentY}`);
+      displacementKey.setAttribute('x2', `${legendX + 44}`);
+      displacementKey.setAttribute('y2', `${currentY}`);
+      displacementKey.setAttribute('class', 'displacement-vector');
+      displacementKey.setAttribute('marker-end', 'url(#displacement-arrowhead)');
+      group.append(displacementKey);
 
-    const displacementLabel = createSvgElement('text');
-    displacementLabel.setAttribute('x', `${legendX + 54}`);
-    displacementLabel.setAttribute('y', `${currentY + 4}`);
-    displacementLabel.setAttribute('class', 'overlay-copy');
-    displacementLabel.textContent = `Displacement vectors ${state.visualization.showDisplacementVectors ? 'on' : 'off'}`;
-    group.append(displacementLabel);
+      const displacementLabel = createSvgElement('text');
+      displacementLabel.setAttribute('x', `${legendX + 54}`);
+      displacementLabel.setAttribute('y', `${currentY + 4}`);
+      displacementLabel.setAttribute('class', 'overlay-copy');
+      displacementLabel.textContent = 'Displacement vectors';
+      group.append(displacementLabel);
 
-    currentY += 24;
+      currentY += 24;
+    }
 
-    const reactionKey = createSvgElement('line');
-    reactionKey.setAttribute('x1', `${legendX + 16}`);
-    reactionKey.setAttribute('y1', `${currentY}`);
-    reactionKey.setAttribute('x2', `${legendX + 44}`);
-    reactionKey.setAttribute('y2', `${currentY}`);
-    reactionKey.setAttribute('class', 'reaction-vector');
-    reactionKey.setAttribute('marker-end', 'url(#reaction-arrowhead)');
-    group.append(reactionKey);
+    if (state.visualization.showReactionVectors) {
+      const reactionKey = createSvgElement('line');
+      reactionKey.setAttribute('x1', `${legendX + 16}`);
+      reactionKey.setAttribute('y1', `${currentY}`);
+      reactionKey.setAttribute('x2', `${legendX + 44}`);
+      reactionKey.setAttribute('y2', `${currentY}`);
+      reactionKey.setAttribute('class', 'reaction-vector');
+      reactionKey.setAttribute('marker-end', 'url(#reaction-arrowhead)');
+      group.append(reactionKey);
 
-    const reactionLabel = createSvgElement('text');
-    reactionLabel.setAttribute('x', `${legendX + 54}`);
-    reactionLabel.setAttribute('y', `${currentY + 4}`);
-    reactionLabel.setAttribute('class', 'overlay-copy');
-    reactionLabel.textContent = `Reaction vectors ${state.visualization.showReactionVectors ? 'on' : 'off'}`;
-    group.append(reactionLabel);
+      const reactionLabel = createSvgElement('text');
+      reactionLabel.setAttribute('x', `${legendX + 54}`);
+      reactionLabel.setAttribute('y', `${currentY + 4}`);
+      reactionLabel.setAttribute('class', 'overlay-copy');
+      reactionLabel.textContent = 'Reaction vectors';
+      group.append(reactionLabel);
+    }
 
     return group;
   }

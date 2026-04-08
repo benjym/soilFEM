@@ -63,6 +63,10 @@ button:disabled {
     transform: none;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 #app {
     min-height: 100vh;
 }

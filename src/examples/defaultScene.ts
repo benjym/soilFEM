@@ -1,6 +1,7 @@
 import type { AnalysisScene } from '../model/types';
 
 export const defaultScene: AnalysisScene = {
+  gravity: { enabled: false, x: 0, y: -1 },
   nodes: [
     { id: 'node-1', x: 0, y: 0 },
     { id: 'node-2', x: 240, y: 0 },
@@ -27,6 +28,7 @@ export const defaultScene: AnalysisScene = {
       kind: 'linear-elastic-plane-strain',
       youngModulus: 20_000,
       poissonRatio: 0.3,
+      density: 1,
     },
   ],
 };

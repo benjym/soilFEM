@@ -10,6 +10,7 @@ describe('materialModel', () => {
       kind: 'linear-elastic-plane-strain',
       youngModulus: 20_000,
       poissonRatio: 0.3,
+      density: 2_000,
     });
     const response = model.evaluate([0.001, 0.002, 0.0005], model.createInitialState());
 
@@ -27,6 +28,7 @@ describe('materialModel', () => {
       kind: 'drucker-prager-plane-strain',
       youngModulus: 20_000,
       poissonRatio: 0.3,
+      density: 2_000,
       beta: 0.2,
       mu: 1.1,
       exponent: 1,
@@ -45,8 +47,9 @@ describe('materialModel', () => {
       id: 'material-3',
       name: 'Terra Cotta Soil',
       kind: 'terra-cotta-plane-strain',
-      youngModulus: 20_000,
-      poissonRatio: 0.3,
+      bulkModulus: 16_666.666666666668,
+      shearModulus: 7_692.307692307692,
+      density: 2_000,
       initialConfinement: 2,
       solidFraction: 0.62,
       mesoTemperature: 0,

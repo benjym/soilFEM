@@ -1,6 +1,7 @@
 import type { AnalysisScene } from '../model/types';
 
 export const druckerPragerSlopeScene: AnalysisScene = {
+  gravity: { enabled: true, x: 0, y: -0.000390625 },
   nodes: [
     { id: 'node-1', x: 0, y: 0 },
     { id: 'node-2', x: 80, y: 0 },
@@ -36,15 +37,7 @@ export const druckerPragerSlopeScene: AnalysisScene = {
     { id: 'support-6', nodeId: 'node-5', direction: 'x' },
     { id: 'support-7', nodeId: 'node-9', direction: 'x' },
   ],
-  loads: [
-    { id: 'load-1', nodeId: 'node-5', fx: 0, fy: -1 },
-    { id: 'load-2', nodeId: 'node-6', fx: 0, fy: -2.5 },
-    { id: 'load-3', nodeId: 'node-7', fx: 0, fy: -2.5 },
-    { id: 'load-4', nodeId: 'node-8', fx: 0, fy: -1 },
-    { id: 'load-5', nodeId: 'node-9', fx: 0, fy: -1 },
-    { id: 'load-6', nodeId: 'node-10', fx: 0, fy: -2.5 },
-    { id: 'load-7', nodeId: 'node-11', fx: 0, fy: -2 },
-  ],
+  loads: [],
   materials: [
     {
       id: 'material-1',
@@ -52,6 +45,7 @@ export const druckerPragerSlopeScene: AnalysisScene = {
       kind: 'drucker-prager-plane-strain',
       youngModulus: 40_000,
       poissonRatio: 0.3,
+      density: 1,
       beta: 0.08,
       mu: 2,
       exponent: 1,

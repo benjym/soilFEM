@@ -7,6 +7,7 @@ import type {
   AppState,
   ContourField,
   Element,
+  GravitySettings,
   LoadDraft,
   Material,
   MaterialKind,
@@ -48,6 +49,12 @@ const initialVisualization: VisualizationState = {
   showReactionVectors: false,
 };
 
+const defaultGravity: GravitySettings = {
+  enabled: false,
+  x: 0,
+  y: -1,
+};
+
 function createIdleAnalysisState(): AnalysisState {
   return {
     status: 'idle',
@@ -65,13 +72,29 @@ function createEmptySelectionState(): SelectionState {
   };
 }
 
+function normalizeGravity(gravity: Partial<GravitySettings> | undefined): GravitySettings {
+  return {
+    enabled: gravity?.enabled ?? defaultGravity.enabled,
+    x: gravity?.x ?? defaultGravity.x,
+    y: gravity?.y ?? defaultGravity.y,
+  };
+}
+
+function normalizeMaterial(material: Material): Material {
+  return {
+    ...material,
+    density: material.density ?? 1,
+  };
+}
+
 function cloneScene(scene: AnalysisScene): AnalysisScene {
   return {
     nodes: scene.nodes.map((node) => ({ ...node })),
     elements: scene.elements.map((element) => ({ ...element, nodeIds: [...element.nodeIds] as Element['nodeIds'] })),
     supports: scene.supports.map((support) => ({ ...support })),
     loads: scene.loads.map((load) => ({ ...load })),
-    materials: relabelMaterials(scene.materials.map((material) => ({ ...material }))),
+    materials: relabelMaterials(scene.materials.map((material) => normalizeMaterial({ ...material }))),
+    gravity: normalizeGravity(scene.gravity),
   };
 }
 
@@ -94,12 +117,38 @@ function nextIdentifier(prefix: string, existingIds: string[]): string {
   return candidate;
 }
 
+function convertYoungsModulusAndPoissonRatioToBulkAndShear(youngModulus: number, poissonRatio: number): { bulkModulus: number; shearModulus: number } {
+  return {
+    bulkModulus: youngModulus / (3 * (1 - 2 * poissonRatio)),
+    shearModulus: youngModulus / (2 * (1 + poissonRatio)),
+  };
+}
+
+function convertBulkAndShearToYoungsModulusAndPoissonRatio(bulkModulus: number, shearModulus: number): { youngModulus: number; poissonRatio: number } {
+  const denominator = 3 * bulkModulus + shearModulus;
+
+  if (denominator <= 0) {
+    throw new Error('Bulk and shear moduli must define a positive elastic denominator.');
+  }
+
+  return {
+    youngModulus: (9 * bulkModulus * shearModulus) / denominator,
+    poissonRatio: (3 * bulkModulus - 2 * shearModulus) / (2 * denominator),
+  };
+}
+
 function updateMaterialNumericField(material: Material, field: MaterialNumericField, value: number): Material {
   switch (field) {
     case 'youngModulus':
-      return { ...material, youngModulus: value };
+      return material.kind !== 'terra-cotta-plane-strain' ? { ...material, youngModulus: value } : material;
     case 'poissonRatio':
-      return { ...material, poissonRatio: value };
+      return material.kind !== 'terra-cotta-plane-strain' ? { ...material, poissonRatio: value } : material;
+    case 'bulkModulus':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, bulkModulus: value } : material;
+    case 'shearModulus':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, shearModulus: value } : material;
+    case 'density':
+      return { ...material, density: value };
     case 'beta':
       return material.kind === 'drucker-prager-plane-strain' ? { ...material, beta: value } : material;
     case 'mu':
@@ -147,6 +196,7 @@ function createMaterial(kind: MaterialKind, id: string, name: string): Material 
       kind,
       youngModulus: 20_000,
       poissonRatio: 0.3,
+      density: 1,
     };
   }
 
@@ -157,6 +207,7 @@ function createMaterial(kind: MaterialKind, id: string, name: string): Material 
       kind,
       youngModulus: 20_000,
       poissonRatio: 0.3,
+      density: 1,
       beta: 0.08,
       mu: 2,
       exponent: 1,
@@ -170,8 +221,9 @@ function createMaterial(kind: MaterialKind, id: string, name: string): Material 
     id,
     name,
     kind,
-    youngModulus: 20_000,
-    poissonRatio: 0.3,
+    bulkModulus: 16_666.666666666668,
+    shearModulus: 7_692.307692307692,
+    density: 1,
     initialConfinement: 2,
     solidFraction: 0.62,
     mesoTemperature: 0,
@@ -195,22 +247,32 @@ function convertMaterialKind(material: Material, nextKind: MaterialKind): Materi
   }
 
   if (nextKind === 'linear-elastic-plane-strain') {
+    const elasticParameters = material.kind === 'terra-cotta-plane-strain'
+      ? convertBulkAndShearToYoungsModulusAndPoissonRatio(material.bulkModulus, material.shearModulus)
+      : { youngModulus: material.youngModulus, poissonRatio: material.poissonRatio };
+
     return {
       id: material.id,
       name: material.name,
       kind: nextKind,
-      youngModulus: material.youngModulus,
-      poissonRatio: material.poissonRatio,
+      youngModulus: elasticParameters.youngModulus,
+      poissonRatio: elasticParameters.poissonRatio,
+      density: material.density,
     };
   }
 
   if (nextKind === 'drucker-prager-plane-strain') {
+    const elasticParameters = material.kind === 'terra-cotta-plane-strain'
+      ? convertBulkAndShearToYoungsModulusAndPoissonRatio(material.bulkModulus, material.shearModulus)
+      : { youngModulus: material.youngModulus, poissonRatio: material.poissonRatio };
+
     return {
       id: material.id,
       name: material.name,
       kind: nextKind,
-      youngModulus: material.youngModulus,
-      poissonRatio: material.poissonRatio,
+      youngModulus: elasticParameters.youngModulus,
+      poissonRatio: elasticParameters.poissonRatio,
+      density: material.density,
       beta: 0.08,
       mu: 2,
       exponent: 1,
@@ -220,12 +282,17 @@ function convertMaterialKind(material: Material, nextKind: MaterialKind): Materi
     };
   }
 
+  const elasticParameters = material.kind === 'terra-cotta-plane-strain'
+    ? { bulkModulus: material.bulkModulus, shearModulus: material.shearModulus }
+    : convertYoungsModulusAndPoissonRatioToBulkAndShear(material.youngModulus, material.poissonRatio);
+
   return {
     id: material.id,
     name: material.name,
     kind: nextKind,
-    youngModulus: material.youngModulus,
-    poissonRatio: material.poissonRatio,
+    bulkModulus: elasticParameters.bulkModulus,
+    shearModulus: elasticParameters.shearModulus,
+    density: material.density,
     initialConfinement: 2,
     solidFraction: 0.62,
     mesoTemperature: 0,
@@ -253,14 +320,16 @@ export class AppStore {
   private listeners = new Set<Listener>();
 
   constructor(scene: AnalysisScene = defaultScene) {
+    const normalizedScene = cloneScene(scene);
+
     this.state = {
-      scene: cloneScene(scene),
+      scene: normalizedScene,
       tool: 'select',
       selection: createEmptySelectionState(),
       stagedElementNodeIds: [],
       hoveredNodeId: null,
       viewport: { ...initialViewport },
-      activeMaterialId: scene.materials[0]?.id ?? null,
+      activeMaterialId: normalizedScene.materials[0]?.id ?? null,
       loadDraft: { ...initialLoadDraft },
       meshDraft: { ...initialMeshDraft },
       visualization: { ...initialVisualization },
@@ -295,6 +364,10 @@ export class AppStore {
 
   setLoadDraft(loadDraft: LoadDraft): void {
     this.patchState({ loadDraft });
+  }
+
+  setGravity(gravity: GravitySettings): void {
+    this.patchScene({ gravity: normalizeGravity(gravity) });
   }
 
   setActiveMaterial(materialId: string): void {
@@ -351,10 +424,10 @@ export class AppStore {
     const nextMaterial = createMaterial(kind, id, getMaterialLabel(this.state.scene.materials.length + 1));
 
     this.patchState({
-      scene: {
+      scene: cloneScene({
         ...this.state.scene,
         materials: [...this.state.scene.materials, nextMaterial],
-      },
+      }),
       activeMaterialId: nextMaterial.id,
       analysis: createIdleAnalysisState(),
       dirty: true,
@@ -373,13 +446,13 @@ export class AppStore {
     }
 
     this.patchState({
-      scene: {
+      scene: cloneScene({
         ...this.state.scene,
         materials: this.state.scene.materials.filter((material) => material.id !== materialId),
         elements: this.state.scene.elements.map((element) => (
           element.materialId === materialId ? { ...element, materialId: fallbackMaterial.id } : element
         )),
-      },
+      }),
       activeMaterialId: this.state.activeMaterialId === materialId ? fallbackMaterial.id : this.state.activeMaterialId,
       analysis: createIdleAnalysisState(),
       dirty: true,
@@ -652,10 +725,10 @@ export class AppStore {
     }
 
     this.patchState({
-      scene: {
+      scene: cloneScene({
         ...this.state.scene,
         loads: this.state.scene.loads.map((load) => (load.id === loadId ? { ...load, fx, fy } : load)),
-      },
+      }),
       selection: {
         nodeIds: [],
         elementIds: [],
@@ -681,13 +754,13 @@ export class AppStore {
     });
 
     this.patchState({
-      scene: {
+      scene: cloneScene({
         ...this.state.scene,
         nodes: mesh.nodes,
         elements: mesh.elements,
         supports: [],
         loads: [],
-      },
+      }),
       selection: createEmptySelectionState(),
       stagedElementNodeIds: [],
       hoveredNodeId: null,
@@ -748,14 +821,16 @@ export class AppStore {
   }
 
   loadScene(scene: AnalysisScene): void {
+    const normalizedScene = cloneScene(scene);
+
     this.state = {
       ...this.state,
-      scene: cloneScene(scene),
+      scene: normalizedScene,
       selection: createEmptySelectionState(),
       stagedElementNodeIds: [],
       hoveredNodeId: null,
       viewport: { ...initialViewport },
-      activeMaterialId: scene.materials[0]?.id ?? null,
+      activeMaterialId: normalizedScene.materials[0]?.id ?? null,
       loadDraft: { ...initialLoadDraft },
       meshDraft: { ...initialMeshDraft },
       visualization: { ...initialVisualization },
@@ -782,10 +857,10 @@ export class AppStore {
     };
 
     this.patchState({
-      scene: {
+      scene: cloneScene({
         ...nextScene,
         materials: relabelMaterials(nextScene.materials),
-      },
+      }),
       analysis: createIdleAnalysisState(),
       dirty: true,
     });
