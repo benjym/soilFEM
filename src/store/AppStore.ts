@@ -8,9 +8,13 @@ import type {
   ContourField,
   Element,
   LoadDraft,
+  Material,
+  MaterialKind,
+  MaterialNumericField,
   Node,
+  SelectionState,
   StructuredMeshDraft,
-  SupportDraft,
+  SupportDirection,
   ToolMode,
   VisualizationState,
   ViewportState,
@@ -21,12 +25,7 @@ type Listener = (state: AppState) => void;
 const initialViewport: ViewportState = {
   zoom: 1.5,
   panX: 240,
-  panY: 180,
-};
-
-const initialSupportDraft: SupportDraft = {
-  fixX: true,
-  fixY: true,
+  panY: 360,
 };
 
 const initialLoadDraft: LoadDraft = {
@@ -57,14 +56,30 @@ function createIdleAnalysisState(): AnalysisState {
   };
 }
 
+function createEmptySelectionState(): SelectionState {
+  return {
+    nodeIds: [],
+    elementIds: [],
+    supportIds: [],
+    loadIds: [],
+  };
+}
+
 function cloneScene(scene: AnalysisScene): AnalysisScene {
   return {
     nodes: scene.nodes.map((node) => ({ ...node })),
     elements: scene.elements.map((element) => ({ ...element, nodeIds: [...element.nodeIds] as Element['nodeIds'] })),
     supports: scene.supports.map((support) => ({ ...support })),
     loads: scene.loads.map((load) => ({ ...load })),
-    materials: scene.materials.map((material) => ({ ...material })),
+    materials: relabelMaterials(scene.materials.map((material) => ({ ...material }))),
   };
+}
+
+function relabelMaterials(materials: Material[]): Material[] {
+  return materials.map((material, index) => ({
+    ...material,
+    name: getMaterialLabel(index + 1),
+  }));
 }
 
 function nextIdentifier(prefix: string, existingIds: string[]): string {
@@ -79,6 +94,159 @@ function nextIdentifier(prefix: string, existingIds: string[]): string {
   return candidate;
 }
 
+function updateMaterialNumericField(material: Material, field: MaterialNumericField, value: number): Material {
+  switch (field) {
+    case 'youngModulus':
+      return { ...material, youngModulus: value };
+    case 'poissonRatio':
+      return { ...material, poissonRatio: value };
+    case 'beta':
+      return material.kind === 'drucker-prager-plane-strain' ? { ...material, beta: value } : material;
+    case 'mu':
+      return material.kind === 'drucker-prager-plane-strain' ? { ...material, mu: value } : material;
+    case 'exponent':
+      return material.kind === 'drucker-prager-plane-strain' ? { ...material, exponent: value } : material;
+    case 'initialConfinement':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, initialConfinement: value } : material;
+    case 'solidFraction':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, solidFraction: value } : material;
+    case 'mesoTemperature':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, mesoTemperature: value } : material;
+    case 'energyCoupling':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, energyCoupling: value } : material;
+    case 'criticalStateSlope':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, criticalStateSlope: value } : material;
+    case 'omega':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, omega: value } : material;
+    case 'compressionIndex':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, compressionIndex: value } : material;
+    case 'referenceSolidFraction':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, referenceSolidFraction: value } : material;
+    case 'volumetricCoefficient':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, volumetricCoefficient: value } : material;
+    case 'deviatoricCoefficient':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, deviatoricCoefficient: value } : material;
+    case 'dissipation':
+      return material.kind === 'terra-cotta-plane-strain' ? { ...material, dissipation: value } : material;
+    case 'loadSteps':
+      return material.kind === 'linear-elastic-plane-strain' ? material : { ...material, loadSteps: value };
+    case 'maxIterations':
+      return material.kind === 'linear-elastic-plane-strain' ? material : { ...material, maxIterations: value };
+    case 'tolerance':
+      return material.kind === 'linear-elastic-plane-strain' ? material : { ...material, tolerance: value };
+    default:
+      return material;
+  }
+}
+
+function createMaterial(kind: MaterialKind, id: string, name: string): Material {
+  if (kind === 'linear-elastic-plane-strain') {
+    return {
+      id,
+      name,
+      kind,
+      youngModulus: 20_000,
+      poissonRatio: 0.3,
+    };
+  }
+
+  if (kind === 'drucker-prager-plane-strain') {
+    return {
+      id,
+      name,
+      kind,
+      youngModulus: 20_000,
+      poissonRatio: 0.3,
+      beta: 0.08,
+      mu: 2,
+      exponent: 1,
+      loadSteps: 12,
+      maxIterations: 24,
+      tolerance: 1e-8,
+    };
+  }
+
+  return {
+    id,
+    name,
+    kind,
+    youngModulus: 20_000,
+    poissonRatio: 0.3,
+    initialConfinement: 2,
+    solidFraction: 0.62,
+    mesoTemperature: 0,
+    energyCoupling: 50,
+    criticalStateSlope: 1,
+    omega: 0.5,
+    compressionIndex: 4,
+    referenceSolidFraction: 0.3,
+    volumetricCoefficient: 1,
+    deviatoricCoefficient: 1,
+    dissipation: 1,
+    loadSteps: 16,
+    maxIterations: 48,
+    tolerance: 1e-8,
+  };
+}
+
+function convertMaterialKind(material: Material, nextKind: MaterialKind): Material {
+  if (material.kind === nextKind) {
+    return material;
+  }
+
+  if (nextKind === 'linear-elastic-plane-strain') {
+    return {
+      id: material.id,
+      name: material.name,
+      kind: nextKind,
+      youngModulus: material.youngModulus,
+      poissonRatio: material.poissonRatio,
+    };
+  }
+
+  if (nextKind === 'drucker-prager-plane-strain') {
+    return {
+      id: material.id,
+      name: material.name,
+      kind: nextKind,
+      youngModulus: material.youngModulus,
+      poissonRatio: material.poissonRatio,
+      beta: 0.08,
+      mu: 2,
+      exponent: 1,
+      loadSteps: material.kind === 'linear-elastic-plane-strain' ? 12 : material.loadSteps ?? 12,
+      maxIterations: material.kind === 'linear-elastic-plane-strain' ? 24 : material.maxIterations ?? 24,
+      tolerance: material.kind === 'linear-elastic-plane-strain' ? 1e-8 : material.tolerance ?? 1e-8,
+    };
+  }
+
+  return {
+    id: material.id,
+    name: material.name,
+    kind: nextKind,
+    youngModulus: material.youngModulus,
+    poissonRatio: material.poissonRatio,
+    initialConfinement: 2,
+    solidFraction: 0.62,
+    mesoTemperature: 0,
+    energyCoupling: 50,
+    criticalStateSlope: 1,
+    omega: 0.5,
+    compressionIndex: 4,
+    referenceSolidFraction: 0.3,
+    volumetricCoefficient: 1,
+    deviatoricCoefficient: 1,
+    dissipation: 1,
+    loadSteps: material.kind === 'linear-elastic-plane-strain' ? 16 : material.loadSteps ?? 16,
+    maxIterations: material.kind === 'linear-elastic-plane-strain' ? 48 : material.maxIterations ?? 48,
+    tolerance: material.kind === 'linear-elastic-plane-strain' ? 1e-8 : material.tolerance ?? 1e-8,
+  };
+}
+
+function getMaterialLabel(index: number): string {
+  return `Material ${index}`;
+}
+
 export class AppStore {
   private state: AppState;
 
@@ -88,11 +256,11 @@ export class AppStore {
     this.state = {
       scene: cloneScene(scene),
       tool: 'select',
-      selection: { nodeIds: [], elementIds: [] },
+      selection: createEmptySelectionState(),
       stagedElementNodeIds: [],
       hoveredNodeId: null,
       viewport: { ...initialViewport },
-      supportDraft: { ...initialSupportDraft },
+      activeMaterialId: scene.materials[0]?.id ?? null,
       loadDraft: { ...initialLoadDraft },
       meshDraft: { ...initialMeshDraft },
       visualization: { ...initialVisualization },
@@ -125,12 +293,111 @@ export class AppStore {
     this.patchState({ viewport });
   }
 
-  setSupportDraft(supportDraft: SupportDraft): void {
-    this.patchState({ supportDraft });
-  }
-
   setLoadDraft(loadDraft: LoadDraft): void {
     this.patchState({ loadDraft });
+  }
+
+  setActiveMaterial(materialId: string): void {
+    if (!this.state.scene.materials.some((material) => material.id === materialId)) {
+      return;
+    }
+
+    this.patchState({ activeMaterialId: materialId });
+  }
+
+  updateMaterialValue(materialId: string, field: MaterialNumericField, value: number): void {
+    let didUpdate = false;
+
+    const materials = this.state.scene.materials.map((material) => {
+      if (material.id !== materialId) {
+        return material;
+      }
+
+      const nextMaterial = updateMaterialNumericField(material, field, value);
+
+      didUpdate ||= nextMaterial !== material;
+      return nextMaterial;
+    });
+
+    if (!didUpdate) {
+      return;
+    }
+
+    this.patchScene({ materials });
+  }
+
+  changeMaterialKind(materialId: string, kind: MaterialKind): void {
+    let didUpdate = false;
+
+    const materials = this.state.scene.materials.map((material) => {
+      if (material.id !== materialId) {
+        return material;
+      }
+
+      const nextMaterial = convertMaterialKind(material, kind);
+      didUpdate ||= nextMaterial !== material;
+      return nextMaterial;
+    });
+
+    if (!didUpdate) {
+      return;
+    }
+
+    this.patchScene({ materials });
+  }
+
+  addMaterial(kind: MaterialKind): void {
+    const id = nextIdentifier('material', this.state.scene.materials.map((material) => material.id));
+    const nextMaterial = createMaterial(kind, id, getMaterialLabel(this.state.scene.materials.length + 1));
+
+    this.patchState({
+      scene: {
+        ...this.state.scene,
+        materials: [...this.state.scene.materials, nextMaterial],
+      },
+      activeMaterialId: nextMaterial.id,
+      analysis: createIdleAnalysisState(),
+      dirty: true,
+    });
+  }
+
+  removeMaterial(materialId: string): void {
+    if (this.state.scene.materials.length <= 1 || !this.state.scene.materials.some((material) => material.id === materialId)) {
+      return;
+    }
+
+    const fallbackMaterial = this.state.scene.materials.find((material) => material.id !== materialId);
+
+    if (!fallbackMaterial) {
+      return;
+    }
+
+    this.patchState({
+      scene: {
+        ...this.state.scene,
+        materials: this.state.scene.materials.filter((material) => material.id !== materialId),
+        elements: this.state.scene.elements.map((element) => (
+          element.materialId === materialId ? { ...element, materialId: fallbackMaterial.id } : element
+        )),
+      },
+      activeMaterialId: this.state.activeMaterialId === materialId ? fallbackMaterial.id : this.state.activeMaterialId,
+      analysis: createIdleAnalysisState(),
+      dirty: true,
+    });
+  }
+
+  assignMaterialToSelectedElements(materialId: string): void {
+    if (!this.state.scene.materials.some((material) => material.id === materialId) || this.state.selection.elementIds.length === 0) {
+      return;
+    }
+
+    const selectedElementIds = new Set(this.state.selection.elementIds);
+
+    this.patchScene({
+      elements: this.state.scene.elements.map((element) => (
+        selectedElementIds.has(element.id) ? { ...element, materialId } : element
+      )),
+    });
   }
 
   setMeshDraft(meshDraft: StructuredMeshDraft): void {
@@ -204,6 +471,8 @@ export class AppStore {
       selection: {
         nodeIds: [],
         elementIds,
+        supportIds: [],
+        loadIds: [],
       },
     });
   }
@@ -217,13 +486,61 @@ export class AppStore {
       selection: {
         nodeIds,
         elementIds: [],
+        supportIds: [],
+        loadIds: [],
+      },
+    });
+  }
+
+  selectSupport(supportId: string, additive = false): void {
+    const support = this.state.scene.supports.find((candidate) => candidate.id === supportId);
+
+    if (!support) {
+      return;
+    }
+
+    const supportIds = additive
+      ? Array.from(new Set([...this.state.selection.supportIds, supportId]))
+      : [supportId];
+
+    this.patchState({
+      selection: {
+        nodeIds: [],
+        elementIds: [],
+        supportIds,
+        loadIds: [],
+      },
+    });
+  }
+
+  selectLoad(loadId: string, additive = false): void {
+    const load = this.state.scene.loads.find((candidate) => candidate.id === loadId);
+
+    if (!load) {
+      return;
+    }
+
+    const loadIds = additive
+      ? Array.from(new Set([...this.state.selection.loadIds, loadId]))
+      : [loadId];
+
+    this.patchState({
+      selection: {
+        nodeIds: [],
+        elementIds: [],
+        supportIds: [],
+        loadIds,
+      },
+      loadDraft: {
+        fx: load.fx,
+        fy: load.fy,
       },
     });
   }
 
   clearSelection(): void {
     this.patchState({
-      selection: { nodeIds: [], elementIds: [] },
+      selection: createEmptySelectionState(),
       stagedElementNodeIds: [],
     });
   }
@@ -239,13 +556,15 @@ export class AppStore {
         selection: {
           nodeIds: staged,
           elementIds: [],
+          supportIds: [],
+          loadIds: [],
         },
       });
 
       return;
     }
 
-    const materialId = this.state.scene.materials[0]?.id;
+    const materialId = this.state.activeMaterialId ?? this.state.scene.materials[0]?.id;
 
     if (!materialId) {
       throw new Error('At least one material is required before creating an element.');
@@ -272,20 +591,30 @@ export class AppStore {
       selection: {
         nodeIds: staged,
         elementIds: [id],
+        supportIds: [],
+        loadIds: [],
       },
     });
   }
 
-  applySupportToNode(nodeId: string): void {
-    const { fixX, fixY } = this.state.supportDraft;
-    const supports = !fixX && !fixY
-      ? this.state.scene.supports.filter((support) => support.nodeId !== nodeId)
-      : this.state.scene.supports.some((support) => support.nodeId === nodeId)
-        ? this.state.scene.supports.map((support) => (support.nodeId === nodeId ? { nodeId, fixX, fixY } : support))
-        : [...this.state.scene.supports, { nodeId, fixX, fixY }];
+  applySupportToNode(nodeId: string, direction: SupportDirection): void {
+    const existing = this.state.scene.supports.find(
+      (support) => support.nodeId === nodeId && support.direction === direction,
+    );
 
-    this.patchScene({ supports });
-    this.selectNode(nodeId);
+    if (existing) {
+      this.selectSupport(existing.id);
+      return;
+    }
+
+    const support = {
+      id: nextIdentifier('support', this.state.scene.supports.map((candidate) => candidate.id)),
+      nodeId,
+      direction,
+    };
+
+    this.patchScene({ supports: [...this.state.scene.supports, support] });
+    this.selectSupport(support.id);
   }
 
   applyLoadToNode(nodeId: string): void {
@@ -306,11 +635,41 @@ export class AppStore {
           ];
 
     this.patchScene({ loads });
+
+    const nextLoad = loads.find((load) => load.nodeId === nodeId);
+
+    if (nextLoad) {
+      this.selectLoad(nextLoad.id);
+      return;
+    }
+
     this.selectNode(nodeId);
   }
 
+  updateLoad(loadId: string, fx: number, fy: number): void {
+    if (!this.state.scene.loads.some((load) => load.id === loadId)) {
+      return;
+    }
+
+    this.patchState({
+      scene: {
+        ...this.state.scene,
+        loads: this.state.scene.loads.map((load) => (load.id === loadId ? { ...load, fx, fy } : load)),
+      },
+      selection: {
+        nodeIds: [],
+        elementIds: [],
+        supportIds: [],
+        loadIds: [loadId],
+      },
+      loadDraft: { fx, fy },
+      analysis: createIdleAnalysisState(),
+      dirty: true,
+    });
+  }
+
   generateStructuredMesh(): void {
-    const materialId = this.state.scene.materials[0]?.id;
+    const materialId = this.state.activeMaterialId ?? this.state.scene.materials[0]?.id;
 
     if (!materialId) {
       throw new Error('A material must exist before generating a structured mesh.');
@@ -329,7 +688,7 @@ export class AppStore {
         supports: [],
         loads: [],
       },
-      selection: { nodeIds: [], elementIds: [] },
+      selection: createEmptySelectionState(),
       stagedElementNodeIds: [],
       hoveredNodeId: null,
       analysis: createIdleAnalysisState(),
@@ -365,8 +724,10 @@ export class AppStore {
   deleteSelection(): void {
     const nodeIds = new Set(this.state.selection.nodeIds);
     const elementIds = new Set(this.state.selection.elementIds);
+    const supportIds = new Set(this.state.selection.supportIds);
+    const loadIds = new Set(this.state.selection.loadIds);
 
-    if (nodeIds.size === 0 && elementIds.size === 0) {
+    if (nodeIds.size === 0 && elementIds.size === 0 && supportIds.size === 0 && loadIds.size === 0) {
       return;
     }
 
@@ -375,8 +736,8 @@ export class AppStore {
       elements: this.state.scene.elements.filter(
         (element) => !elementIds.has(element.id) && !element.nodeIds.some((nodeId) => nodeIds.has(nodeId)),
       ),
-      supports: this.state.scene.supports.filter((support) => !nodeIds.has(support.nodeId)),
-      loads: this.state.scene.loads.filter((load) => !nodeIds.has(load.nodeId)),
+      supports: this.state.scene.supports.filter((support) => !nodeIds.has(support.nodeId) && !supportIds.has(support.id)),
+      loads: this.state.scene.loads.filter((load) => !nodeIds.has(load.nodeId) && !loadIds.has(load.id)),
     });
 
     this.clearSelection();
@@ -386,29 +747,15 @@ export class AppStore {
     return JSON.stringify(this.state.scene, null, 2);
   }
 
-  importScene(json: string): void {
-    const parsed = JSON.parse(json) as AnalysisScene;
-
+  loadScene(scene: AnalysisScene): void {
     this.state = {
       ...this.state,
-      scene: cloneScene(parsed),
-      selection: { nodeIds: [], elementIds: [] },
-      stagedElementNodeIds: [],
-      analysis: createIdleAnalysisState(),
-      dirty: false,
-    };
-    this.notify();
-  }
-
-  resetScene(): void {
-    this.state = {
-      ...this.state,
-      scene: cloneScene(defaultScene),
-      selection: { nodeIds: [], elementIds: [] },
+      scene: cloneScene(scene),
+      selection: createEmptySelectionState(),
       stagedElementNodeIds: [],
       hoveredNodeId: null,
       viewport: { ...initialViewport },
-      supportDraft: { ...initialSupportDraft },
+      activeMaterialId: scene.materials[0]?.id ?? null,
       loadDraft: { ...initialLoadDraft },
       meshDraft: { ...initialMeshDraft },
       visualization: { ...initialVisualization },
@@ -418,11 +765,26 @@ export class AppStore {
     this.notify();
   }
 
+  importScene(json: string): void {
+    const parsed = JSON.parse(json) as AnalysisScene;
+
+    this.loadScene(parsed);
+  }
+
+  resetScene(): void {
+    this.loadScene(defaultScene);
+  }
+
   private patchScene(partial: Partial<AnalysisScene>): void {
+    const nextScene = {
+      ...this.state.scene,
+      ...partial,
+    };
+
     this.patchState({
       scene: {
-        ...this.state.scene,
-        ...partial,
+        ...nextScene,
+        materials: relabelMaterials(nextScene.materials),
       },
       analysis: createIdleAnalysisState(),
       dirty: true,

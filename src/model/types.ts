@@ -1,4 +1,4 @@
-export type ToolMode = 'select' | 'add-node' | 'add-element' | 'add-support' | 'add-load';
+export type ToolMode = 'select' | 'add-node' | 'add-element' | 'add-support-x' | 'add-support-y' | 'add-load';
 
 export interface Node {
   id: string;
@@ -12,10 +12,12 @@ export interface Element {
   materialId: string;
 }
 
+export type SupportDirection = 'x' | 'y';
+
 export interface Support {
+  id: string;
   nodeId: string;
-  fixX: boolean;
-  fixY: boolean;
+  direction: SupportDirection;
 }
 
 export interface NodalLoad {
@@ -25,13 +27,73 @@ export interface NodalLoad {
   fy: number;
 }
 
-export interface Material {
+export interface LinearElasticPlaneStrainMaterial {
   id: string;
   name: string;
   kind: 'linear-elastic-plane-strain';
   youngModulus: number;
   poissonRatio: number;
 }
+
+export interface DruckerPragerPlaneStrainMaterial {
+  id: string;
+  name: string;
+  kind: 'drucker-prager-plane-strain';
+  youngModulus: number;
+  poissonRatio: number;
+  beta: number;
+  mu: number;
+  exponent: number;
+  loadSteps?: number;
+  maxIterations?: number;
+  tolerance?: number;
+}
+
+export interface TerraCottaPlaneStrainMaterial {
+  id: string;
+  name: string;
+  kind: 'terra-cotta-plane-strain';
+  youngModulus: number;
+  poissonRatio: number;
+  initialConfinement: number;
+  solidFraction: number;
+  mesoTemperature: number;
+  energyCoupling: number;
+  criticalStateSlope: number;
+  omega: number;
+  compressionIndex: number;
+  referenceSolidFraction: number;
+  volumetricCoefficient: number;
+  deviatoricCoefficient: number;
+  dissipation: number;
+  loadSteps?: number;
+  maxIterations?: number;
+  tolerance?: number;
+}
+
+export type Material = LinearElasticPlaneStrainMaterial | DruckerPragerPlaneStrainMaterial | TerraCottaPlaneStrainMaterial;
+export type MaterialKind = Material['kind'];
+
+export type MaterialNumericField =
+  | 'youngModulus'
+  | 'poissonRatio'
+  | 'beta'
+  | 'mu'
+  | 'exponent'
+  | 'initialConfinement'
+  | 'solidFraction'
+  | 'mesoTemperature'
+  | 'energyCoupling'
+  | 'criticalStateSlope'
+  | 'omega'
+  | 'compressionIndex'
+  | 'referenceSolidFraction'
+  | 'volumetricCoefficient'
+  | 'deviatoricCoefficient'
+  | 'dissipation'
+  | 'loadSteps'
+  | 'maxIterations'
+  | 'tolerance';
 
 export interface AnalysisScene {
   nodes: Node[];
@@ -44,17 +106,14 @@ export interface AnalysisScene {
 export interface SelectionState {
   nodeIds: string[];
   elementIds: string[];
+  supportIds: string[];
+  loadIds: string[];
 }
 
 export interface ViewportState {
   zoom: number;
   panX: number;
   panY: number;
-}
-
-export interface SupportDraft {
-  fixX: boolean;
-  fixY: boolean;
 }
 
 export interface LoadDraft {
@@ -146,7 +205,7 @@ export interface AppState {
   stagedElementNodeIds: string[];
   hoveredNodeId: string | null;
   viewport: ViewportState;
-  supportDraft: SupportDraft;
+  activeMaterialId: string | null;
   loadDraft: LoadDraft;
   meshDraft: StructuredMeshDraft;
   visualization: VisualizationState;

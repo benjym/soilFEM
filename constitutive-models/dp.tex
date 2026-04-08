@@ -1,0 +1,205 @@
+% RECOMMENDED %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass[a4paper]{article}
+\pagestyle{plain}
+\usepackage[top=2cm, bottom=2cm, left=3cm, right=2cm]{geometry} 
+
+% choose options for [] as required from the list
+% in the Reference Guide
+
+\usepackage{amsmath} % for bold greek fonts
+\usepackage{amssymb} % for non-standard symbols
+\usepackage{graphicx}        % standard LaTeX graphics tool
+                             % when including figure files
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+\title{Drucker-Prager h$^2$ formulation}
+\author{Benjy Marks}
+\maketitle
+
+\section{Definitions}
+
+The stress ($\sigma$) and strain ($\epsilon$) fields can be decomposed into volumetric ($\sigma_{kk}$, $\epsilon_v$) and deviatoric ($s_{ij}$, $e_{ij}$) parts as:
+
+\begin{equation}
+s_{ij}=\sigma_{ij}-\frac{\delta_{ij}}{3}\sigma_{kk},\hspace{1cm}e_{ij}=\epsilon_{ij}-\frac{\delta_{ij}}{3}\epsilon_{kk}
+\end{equation}
+
+We also split the strain rate into an elastic part and a relaxation part as
+
+\begin{equation}
+\dot\epsilon_{ij} = \dot\epsilon^e_{ij} + \dot\epsilon^r_{ij}
+\end{equation}
+
+We will define the rate of $\epsilon^r$ in terms of the acoustic potential and a non-negative plasticity multiplier as
+
+\begin{equation}
+\dot\epsilon^r = \Gamma\frac{\partial A}{\partial\sigma_{ij}}
+\end{equation}
+
+where $\Gamma = \langle\lambda\rangle$. The yield function will be expressed in terms of invariants $p$ and $q$, defined as:
+
+\begin{equation}
+p=\frac{1}{3}\sigma_{ii},\hspace{1cm}q=\sqrt{\frac{3}{2}s_{ij}s_{ji}}
+\end{equation}
+
+\section{Elasto plasticity}
+
+For the Drucker-Prager yield criterion we take
+
+\begin{equation}
+y_{\Phi} = \frac{q}{\beta p + (\mu-\beta)Ke_v^e}\le0,\hspace{1cm}y = \frac{q}{\mu p} -1 \le 0
+\end{equation}
+
+Differentiating this at failure we get:
+
+\begin{equation}
+\dot y =\frac{\partial y}{\partial q}\frac{\partial q}{\partial t}+\frac{\partial y}{\partial p}\frac{\partial p}{\partial t}= \frac{\dot q}{\mu p} -\frac{q\dot p}{\mu p^2} = 0
+\end{equation}
+
+or
+
+\begin{equation}
+\frac{\partial q}{\partial s_{ij}}\dot s_{ij} -\frac{q\dot p}{p} = 0
+\end{equation}
+
+We can substitute in the terms
+
+\begin{equation}
+\frac{\partial q}{\partial s_{ij}} = \frac{3s_{ij}}{2q},\hspace{1cm}
+\dot s_{ij} = 2G\dot e_{ij}^e,\hspace{1cm}
+\end{equation}
+
+to give
+
+\begin{equation}
+\frac{3s_{ij}}{2q}2G\dot e_{ij}^e -\frac{q\dot p}{p} = 0
+\end{equation}
+
+We can also decompose elastic strains to give
+
+\begin{equation}
+\dot e^e_{ij} = \dot e_{ij} - \lambda\frac{\partial y_\Phi}{\partial s_{ij}},\hspace{1cm}
+\dot \epsilon^e_{ii} = \dot\epsilon_{ii} - \lambda\frac{\partial y_\Phi}{\partial p}
+\end{equation}
+
+which gives
+
+\begin{equation}
+\dot e^e_{ij} = \dot e_{ij} - \lambda\frac{\partial y_\Phi}{\partial s_{ij}},\hspace{1cm}
+\dot p = K(\dot\epsilon_{ii} - \lambda\frac{\partial y_\Phi}{\partial p})
+\end{equation}
+
+Substituting these into (9) gives
+
+\begin{equation}
+\frac{3s_{ij}}{2q}2G(\dot e_{ij} - \lambda\frac{\partial y_\Phi}{\partial s_{ij}}) -\frac{Kq(\dot\epsilon_{kk} - \lambda\frac{\partial y_\Phi}{\partial p})}{p} = 0
+\end{equation}
+
+Expanding brackets,
+
+\begin{equation}
+\frac{3s_{ij}}{q}G\dot e_{ij} - \lambda\frac{3s_{ij}}{q}G\frac{\partial y_\Phi}{\partial s_{ij}} -\frac{Kq\dot\epsilon_{kk}}{p} + \frac{\lambda Kq\frac{\partial y_\Phi}{\partial p}}{p} = 0
+\end{equation}
+
+Solving for $\lambda$,
+
+\begin{equation}
+\lambda\frac{3s_{ij}}{q}G\frac{\partial y_\Phi}{\partial s_{ij}} - \frac{\lambda Kq\frac{\partial y_\Phi}{\partial p}}{p} = \frac{3s_{ij}}{q}G\dot e_{ij} - \frac{Kq\dot\epsilon_{kk}}{p}
+\end{equation}
+
+\begin{equation}
+\lambda = \frac{\frac{3s_{ij}}{q}G\dot e_{ij} - \frac{Kq\dot\epsilon_{kk}}{p}}{\frac{3s_{ij}}{q}G\frac{\partial y_\Phi}{\partial s_{ij}} - \frac{Kq\frac{\partial y_\Phi}{\partial p}}{p}}
+\end{equation}
+
+Now we can simplify this a bit by using
+
+\begin{equation}
+\frac{\partial y_\Phi}{\partial s_{ij}} = \frac{\partial y_\Phi}{\partial q}\frac{\partial q}{\partial s_{ij}}
+\end{equation}
+
+and
+
+\begin{equation}
+\frac{\partial y_\Phi}{\partial q} = \frac{1}{\mu p},\hspace{0.5cm}
+\frac{\partial y_\Phi}{\partial p} = -\frac{\beta q}{\mu^2 p^2}
+\end{equation}
+
+So that we can express $\lambda$ as
+
+\begin{equation}
+\lambda = \frac{\frac{3s_{ij}}{q}G\dot e_{ij} - \frac{Kq\dot\epsilon_{kk}}{p}}{\frac{3s_{ij}}{q}G\frac{1}{\mu p}\frac{3s_{ij}}{2q} - \frac{Kq\frac{-\beta q}{\mu^2 p^2}}{p}}
+\end{equation}
+
+or even
+
+\begin{equation}
+\lambda = \frac{2\mu qp^2(3Gps_{ij}\dot e_{ij} - Kq^2\dot\epsilon_{kk})}
+{9Gp^2s_{ij}s_{ij} + \frac{2\beta Kq^4}{\mu}}
+\end{equation}
+
+Taking $\frac{2}{3}q^2 = s_{ij}s_{ij}$,
+
+\begin{equation}
+\lambda = \frac{\mu^2 p^2}{q}\frac{(3Gps_{ij}\dot e_{ij} - Kq^2\dot\epsilon_{kk})}
+{3G\mu p^2 + K\beta q^2}
+\end{equation}
+
+\section{h$^2$ development}
+
+We now define the acoustic potential as:
+
+\begin{equation}
+\frac{\partial A}{\partial y_\Phi} = (1+y_\Phi)^s = (1+y)^s
+\end{equation}
+
+Hooke's Law can be written as:
+
+\begin{equation}
+\dot\sigma_{ij} = 2G\dot e^e_{ij} + \delta_{ij}K\dot\epsilon^e_{kk}
+\end{equation}
+
+Substituting in (2) and (3) gives
+
+\begin{equation}
+\dot\sigma_{ij} = 2G\left(\dot e_{ij} - \Gamma\frac{\partial A}{\partial y_\Phi}\frac{\partial y_\Phi}{\partial s_{ij}}\right) + \delta_{ij}K\left(\dot\epsilon_{kk} - \Gamma\frac{\partial A}{\partial y_\Phi}\frac{\partial y_\Phi}{\partial p}\right)
+\end{equation}
+
+inlcuding (17) gives:
+
+\begin{equation}
+\dot\sigma_{ij} = 2G\left(\dot e_{ij} - \Gamma(1+y)^s\frac{1}{\mu p}\frac{3s_{ij}}{2q}\right) + \delta_{ij}K\left(\dot\epsilon_{kk} + \Gamma(1+y)^s\frac{\beta q}{\mu^2 p^2}\right)
+\end{equation}
+
+and substituting in $\Gamma=\langle\lambda\rangle$ from (19) gives,
+
+\begin{eqnarray}
+\dot\sigma_{ij} = 2G\left(\dot e_{ij} - \frac{3s_{ij}\mu p}{2q^2}\langle\frac{(3Gps_{ij}\dot e_{ij} - Kq^2\dot\epsilon_{kk})}
+{3G\mu p^2 + K\beta q^2}\rangle
+(1+y)^s\right) \nonumber \\
++ \delta_{ij}K\left(\dot\epsilon_{kk} + \beta\langle\frac{(3Gps_{ij}\dot e_{ij} - Kq^2\dot\epsilon_{kk})}
+{3G\mu p^2 + K\beta q^2}\rangle(1+y)^s\right)
+\end{eqnarray}
+
+or
+
+\begin{equation}
+\dot\sigma_{ij} = 2G\left(\dot e_{ij} - \frac{3s_{ij}\mu p}{2q^2}\langle\lambda_2\rangle
+(\frac{q}{\mu p})^s\right) + \delta_{ij}K\left(\dot\epsilon_{kk} + \beta\langle\lambda_2\rangle(\frac{q}{\mu p})^s\right)
+\end{equation}
+
+\begin{equation}
+\dot\sigma_{ij} = 2G\left(\dot e_{ij} - \frac{3s_{ij}}{2q}\langle\lambda_2\rangle
+(\frac{q}{\mu p})^{s-1}\right) + \delta_{ij}K\left(\dot\epsilon_{kk} + \beta\langle\lambda_2\rangle(\frac{q}{\mu p})^s\right)
+\end{equation}
+
+where
+
+\begin{equation}
+\lambda_2=\frac{(3Gps_{ij}\dot e_{ij} - Kq^2\dot\epsilon_{kk})}
+{3G\mu p^2 + K\beta q^2}
+\end{equation}
+
+\end{document}

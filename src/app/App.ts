@@ -1,23 +1,101 @@
 import { SvgEditor } from '../editor/SvgEditor';
-import type { AppState, ContourField, ElementAnalysisResult, ToolMode } from '../model/types';
+import { exampleScenes, getExampleSceneById } from '../examples/exampleLibrary';
+import type { AppState, ContourField, Element, Material, MaterialKind, MaterialNumericField, ToolMode } from '../model/types';
 import { AppStore } from '../store/AppStore';
 
 const toolMeta: Array<{ mode: ToolMode; label: string; shortcut: string }> = [
   { mode: 'select', label: 'Select / Pan', shortcut: '1' },
   { mode: 'add-node', label: 'Add Node', shortcut: '2' },
-  { mode: 'add-element', label: 'Add Triangle', shortcut: '3' },
-  { mode: 'add-support', label: 'Stamp Support', shortcut: '4' },
-  { mode: 'add-load', label: 'Stamp Load', shortcut: '5' },
+  { mode: 'add-element', label: 'Add Element', shortcut: '3' },
+  { mode: 'add-support-x', label: 'Fix X', shortcut: '4' },
+  { mode: 'add-support-y', label: 'Fix Y', shortcut: '5' },
+  { mode: 'add-load', label: 'Stamp Load', shortcut: '6' },
 ];
 
+const auxiliaryToolMeta = {
+  action: 'open-mesh-dialog',
+  label: 'Structured Mesh',
+  shortcut: 'M',
+} as const;
+
 const contourFieldMeta: Array<{ value: ContourField; label: string }> = [
-  { value: 'none', label: 'No contour fill' },
+  { value: 'none', label: 'Material model fill' },
   { value: 'meanStress', label: 'Mean stress p' },
   { value: 'deviatoricStress', label: 'Deviatoric stress q' },
   { value: 'sxx', label: 'Sigma xx' },
   { value: 'syy', label: 'Sigma yy' },
   { value: 'txy', label: 'Tau xy' },
   { value: 'volumetricStrain', label: 'Volumetric strain' },
+];
+
+const materialKindMeta: Array<{ value: MaterialKind; label: string }> = [
+  { value: 'linear-elastic-plane-strain', label: 'Linear Elastic' },
+  { value: 'drucker-prager-plane-strain', label: 'Drucker-Prager' },
+  { value: 'terra-cotta-plane-strain', label: 'Terra Cotta' },
+];
+
+const baseMaterialFieldMeta: Array<{
+  field: Extract<MaterialNumericField, 'youngModulus' | 'poissonRatio'>;
+  label: string;
+  min?: number;
+  max?: number;
+  step: string;
+}> = [
+  { field: 'youngModulus', label: 'Young modulus E', min: 1e-9, step: '100' },
+  { field: 'poissonRatio', label: 'Poisson ratio nu', min: -0.99, max: 0.49, step: '0.01' },
+];
+
+const druckerPragerFieldMeta: Array<{
+  field: Extract<MaterialNumericField, 'beta' | 'mu' | 'exponent' | 'loadSteps' | 'maxIterations' | 'tolerance'>;
+  label: string;
+  min?: number;
+  step: string;
+}> = [
+  { field: 'beta', label: 'Beta', min: 0, step: '0.01' },
+  { field: 'mu', label: 'Mu', min: 1e-9, step: '0.01' },
+  { field: 'exponent', label: 'Exponent s', min: 1e-9, step: '0.01' },
+  { field: 'loadSteps', label: 'Load steps', min: 1, step: '1' },
+  { field: 'maxIterations', label: 'Max iterations', min: 1, step: '1' },
+  { field: 'tolerance', label: 'Tolerance', min: 1e-12, step: 'any' },
+];
+
+const terraCottaFieldMeta: Array<{
+  field: Extract<
+    MaterialNumericField,
+    | 'initialConfinement'
+    | 'solidFraction'
+    | 'mesoTemperature'
+    | 'energyCoupling'
+    | 'criticalStateSlope'
+    | 'omega'
+    | 'compressionIndex'
+    | 'referenceSolidFraction'
+    | 'volumetricCoefficient'
+    | 'deviatoricCoefficient'
+    | 'dissipation'
+    | 'loadSteps'
+    | 'maxIterations'
+    | 'tolerance'
+  >;
+  label: string;
+  min?: number;
+  max?: number;
+  step: string;
+}> = [
+  { field: 'initialConfinement', label: 'Initial confinement p0', min: 0, step: '0.1' },
+  { field: 'solidFraction', label: 'Solid fraction phi', min: 1e-6, max: 0.999999, step: '0.01' },
+  { field: 'mesoTemperature', label: 'Meso-temperature Tm', min: 0, step: '0.01' },
+  { field: 'energyCoupling', label: 'Energy coupling Gamma', min: 1e-9, step: '0.1' },
+  { field: 'criticalStateSlope', label: 'Critical state slope M', min: 1e-9, step: '0.01' },
+  { field: 'omega', label: 'Omega', min: 1e-9, step: '0.01' },
+  { field: 'compressionIndex', label: 'Compression index lambda', min: 1e-9, step: '0.1' },
+  { field: 'referenceSolidFraction', label: 'Reference solid frac phi_I', min: 1e-6, max: 0.999999, step: '0.01' },
+  { field: 'volumetricCoefficient', label: 'Volumetric coeff a', min: 1e-9, step: '0.01' },
+  { field: 'deviatoricCoefficient', label: 'Deviatoric coeff c', min: 1e-9, step: '0.01' },
+  { field: 'dissipation', label: 'Dissipation eta', min: 1e-9, step: '0.01' },
+  { field: 'loadSteps', label: 'Load steps', min: 1, step: '1' },
+  { field: 'maxIterations', label: 'Max iterations', min: 1, step: '1' },
+  { field: 'tolerance', label: 'Tolerance', min: 1e-12, step: 'any' },
 ];
 
 function parseNumber(value: string, fallback: number): number {
@@ -32,33 +110,305 @@ function parsePositiveInteger(value: string, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getContourFieldLabel(field: ContourField): string {
-  return contourFieldMeta.find((candidate) => candidate.value === field)?.label ?? field;
+function isMaterialNumericField(value: string): value is MaterialNumericField {
+  return [
+    'youngModulus',
+    'poissonRatio',
+    'beta',
+    'mu',
+    'exponent',
+    'initialConfinement',
+    'solidFraction',
+    'mesoTemperature',
+    'energyCoupling',
+    'criticalStateSlope',
+    'omega',
+    'compressionIndex',
+    'referenceSolidFraction',
+    'volumetricCoefficient',
+    'deviatoricCoefficient',
+    'dissipation',
+    'loadSteps',
+    'maxIterations',
+    'tolerance',
+  ].includes(value);
 }
 
-function getContourValues(field: ContourField, elementResults: ElementAnalysisResult[]): number[] {
-  if (field === 'none') {
-    return [];
+function isMaterialKind(value: string): value is MaterialKind {
+  return materialKindMeta.some((candidate) => candidate.value === value);
+}
+
+function getMaterialValidationKey(materialId: string, field: MaterialNumericField): string {
+  return `${materialId}:${field}`;
+}
+
+function getMaterialFieldErrorMessage(material: Material, field: MaterialNumericField): string {
+  switch (field) {
+    case 'youngModulus':
+      return 'Young modulus must be positive.';
+    case 'poissonRatio':
+      return 'Poisson ratio must stay between -1 and 0.5.';
+    case 'beta':
+      return 'Beta must be zero or positive.';
+    case 'mu':
+      return 'Mu must be positive.';
+    case 'exponent':
+      return 'Exponent must be positive.';
+    case 'initialConfinement':
+      return 'Initial confinement must be zero or positive.';
+    case 'solidFraction':
+      return 'Solid fraction must stay between 0 and 1.';
+    case 'mesoTemperature':
+      return 'Meso-temperature must be zero or positive.';
+    case 'energyCoupling':
+      return 'Energy coupling must be positive.';
+    case 'criticalStateSlope':
+      return 'Critical state slope must be positive.';
+    case 'omega':
+      return 'Omega must be positive.';
+    case 'compressionIndex':
+      return 'Compression index must be positive.';
+    case 'referenceSolidFraction':
+      return 'Reference solid fraction must stay between 0 and 1.';
+    case 'volumetricCoefficient':
+      return 'Volumetric coefficient must be positive.';
+    case 'deviatoricCoefficient':
+      return 'Deviatoric coefficient must be positive.';
+    case 'dissipation':
+      return 'Dissipation must be positive.';
+    case 'loadSteps':
+      return 'Load steps must be a positive integer.';
+    case 'maxIterations':
+      return 'Max iterations must be a positive integer.';
+    case 'tolerance':
+      return material.kind !== 'linear-elastic-plane-strain'
+        ? 'Tolerance must be positive.'
+        : 'This field is not available for the current material.';
+    default:
+      return 'Enter a valid number.';
+  }
+}
+
+function getMaterialFieldValue(material: Material, field: MaterialNumericField): number | null {
+  switch (field) {
+    case 'youngModulus':
+      return material.youngModulus;
+    case 'poissonRatio':
+      return material.poissonRatio;
+    case 'beta':
+      return material.kind === 'drucker-prager-plane-strain' ? material.beta : null;
+    case 'mu':
+      return material.kind === 'drucker-prager-plane-strain' ? material.mu : null;
+    case 'exponent':
+      return material.kind === 'drucker-prager-plane-strain' ? material.exponent : null;
+    case 'initialConfinement':
+      return material.kind === 'terra-cotta-plane-strain' ? material.initialConfinement : null;
+    case 'solidFraction':
+      return material.kind === 'terra-cotta-plane-strain' ? material.solidFraction : null;
+    case 'mesoTemperature':
+      return material.kind === 'terra-cotta-plane-strain' ? material.mesoTemperature : null;
+    case 'energyCoupling':
+      return material.kind === 'terra-cotta-plane-strain' ? material.energyCoupling : null;
+    case 'criticalStateSlope':
+      return material.kind === 'terra-cotta-plane-strain' ? material.criticalStateSlope : null;
+    case 'omega':
+      return material.kind === 'terra-cotta-plane-strain' ? material.omega : null;
+    case 'compressionIndex':
+      return material.kind === 'terra-cotta-plane-strain' ? material.compressionIndex : null;
+    case 'referenceSolidFraction':
+      return material.kind === 'terra-cotta-plane-strain' ? material.referenceSolidFraction : null;
+    case 'volumetricCoefficient':
+      return material.kind === 'terra-cotta-plane-strain' ? material.volumetricCoefficient : null;
+    case 'deviatoricCoefficient':
+      return material.kind === 'terra-cotta-plane-strain' ? material.deviatoricCoefficient : null;
+    case 'dissipation':
+      return material.kind === 'terra-cotta-plane-strain' ? material.dissipation : null;
+    case 'loadSteps':
+      return material.kind === 'linear-elastic-plane-strain' ? null : material.loadSteps ?? 12;
+    case 'maxIterations':
+      return material.kind === 'linear-elastic-plane-strain' ? null : material.maxIterations ?? 24;
+    case 'tolerance':
+      return material.kind === 'linear-elastic-plane-strain' ? null : material.tolerance ?? 1e-8;
+    default:
+      return null;
+  }
+}
+
+function parseMaterialFieldValue(material: Material, field: MaterialNumericField, value: string): number | null {
+  const parsed = field === 'loadSteps' || field === 'maxIterations'
+    ? Math.floor(Number(value))
+    : Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return null;
   }
 
-  return elementResults.map((result) => {
-    switch (field) {
-      case 'meanStress':
-        return result.stress.meanStress;
-      case 'deviatoricStress':
-        return result.stress.deviatoricStress;
-      case 'sxx':
-        return result.stress.sxx;
-      case 'syy':
-        return result.stress.syy;
-      case 'txy':
-        return result.stress.txy;
-      case 'volumetricStrain':
-        return result.strain.volumetric;
-      default:
-        return 0;
+  switch (field) {
+    case 'youngModulus':
+      return parsed > 0 ? parsed : null;
+    case 'poissonRatio':
+      return parsed > -0.999 && parsed < 0.5 ? parsed : null;
+    case 'beta':
+      return material.kind === 'drucker-prager-plane-strain' && parsed >= 0 ? parsed : null;
+    case 'mu':
+      return material.kind === 'drucker-prager-plane-strain' && parsed > 0 ? parsed : null;
+    case 'exponent':
+      return material.kind === 'drucker-prager-plane-strain' && parsed > 0 ? parsed : null;
+    case 'initialConfinement':
+      return material.kind === 'terra-cotta-plane-strain' && parsed >= 0 ? parsed : null;
+    case 'solidFraction':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 && parsed < 1 ? parsed : null;
+    case 'mesoTemperature':
+      return material.kind === 'terra-cotta-plane-strain' && parsed >= 0 ? parsed : null;
+    case 'energyCoupling':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'criticalStateSlope':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'omega':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'compressionIndex':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'referenceSolidFraction':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 && parsed < 1 ? parsed : null;
+    case 'volumetricCoefficient':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'deviatoricCoefficient':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'dissipation':
+      return material.kind === 'terra-cotta-plane-strain' && parsed > 0 ? parsed : null;
+    case 'loadSteps':
+      return material.kind !== 'linear-elastic-plane-strain' && parsed > 0 ? parsed : null;
+    case 'maxIterations':
+      return material.kind !== 'linear-elastic-plane-strain' && parsed > 0 ? parsed : null;
+    case 'tolerance':
+      return material.kind !== 'linear-elastic-plane-strain' && parsed > 0 ? parsed : null;
+    default:
+      return null;
+  }
+}
+
+function renderMaterialInput(
+  material: Material,
+  field: MaterialNumericField,
+  label: string,
+  step: string,
+  validationErrors: Map<string, string>,
+  min?: number,
+  max?: number,
+): string {
+  const value = getMaterialFieldValue(material, field);
+
+  if (value === null) {
+    return '';
+  }
+
+  const error = validationErrors.get(getMaterialValidationKey(material.id, field));
+
+  return `
+    <label class="labelled-field material-field">
+      <span>${label}</span>
+      <input
+        type="number"
+        data-role="material-input"
+        data-material-id="${material.id}"
+        data-material-field="${field}"
+        value="${value}"
+        step="${step}"
+        ${min === undefined ? '' : `min="${min}"`}
+        ${max === undefined ? '' : `max="${max}"`}
+      />
+      ${error ? `<span class="field-error">${error}</span>` : ''}
+    </label>
+  `;
+}
+
+function renderMaterialPanel(
+  materials: Material[],
+  elements: Element[],
+  selectedElementIds: string[],
+  activeMaterialId: string | null,
+  validationErrors: Map<string, string>,
+): string {
+  if (materials.length === 0) {
+    return '<p>No materials are defined in this scene.</p>';
+  }
+
+  const selectedElementIdSet = new Set(selectedElementIds);
+
+  const toolbar = `
+    <div class="material-toolbar">
+      <button type="button" data-action="add-linear-material">Add Linear Elastic</button>
+      <button type="button" data-action="add-drucker-prager-material">Add Drucker-Prager</button>
+      <button type="button" data-action="add-terra-cotta-material">Add Terra Cotta</button>
+    </div>
+  `;
+
+  const cards = materials.map((material) => {
+    const elementCount = elements.filter((element) => element.materialId === material.id).length;
+    const selectedCount = elements.filter((element) => element.materialId === material.id && selectedElementIdSet.has(element.id)).length;
+    const commonFields = baseMaterialFieldMeta
+      .map((fieldMeta) => renderMaterialInput(material, fieldMeta.field, fieldMeta.label, fieldMeta.step, validationErrors, fieldMeta.min, fieldMeta.max))
+      .join('');
+
+    const header = `
+      <div class="material-card-header">
+        <div>
+          <p><strong>${material.name}</strong></p>
+          <p class="material-kind">${elementCount} elements${selectedCount > 0 ? ` · ${selectedCount} selected` : ''}${activeMaterialId === material.id ? ' · active for new elements' : ''}</p>
+        </div>
+        <div class="material-actions">
+          <label class="labelled-field material-kind-field">
+            <span>Type</span>
+            <select data-role="material-kind" data-material-id="${material.id}">
+              ${materialKindMeta
+                .map((kindMeta) => `<option value="${kindMeta.value}" ${kindMeta.value === material.kind ? 'selected' : ''}>${kindMeta.label}</option>`)
+                .join('')}
+            </select>
+          </label>
+          <button type="button" data-action="activate-material" data-material-id="${material.id}" ${activeMaterialId === material.id ? 'disabled' : ''}>Use For New Elements</button>
+          <button type="button" data-action="assign-material" data-material-id="${material.id}" ${selectedElementIds.length === 0 ? 'disabled' : ''}>Assign To Selected Elements</button>
+          <button type="button" data-action="remove-material" data-material-id="${material.id}" ${materials.length <= 1 ? 'disabled' : ''}>Remove</button>
+        </div>
+      </div>
+    `;
+
+    if (material.kind === 'linear-elastic-plane-strain') {
+      return `
+        <div class="material-card">
+          ${header}
+          <div class="control-grid material-grid">${commonFields}</div>
+        </div>
+      `;
     }
-  });
+
+    if (material.kind === 'drucker-prager-plane-strain') {
+      const druckerPragerFields = druckerPragerFieldMeta
+        .map((fieldMeta) => renderMaterialInput(material, fieldMeta.field, fieldMeta.label, fieldMeta.step, validationErrors, fieldMeta.min))
+        .join('');
+
+      return `
+        <div class="material-card">
+          ${header}
+          <div class="control-grid material-grid">${commonFields}${druckerPragerFields}</div>
+          <p class="material-note">Nonlinear solver controls apply when this material is present in the scene.</p>
+        </div>
+      `;
+    }
+
+    const terraCottaFields = terraCottaFieldMeta
+      .map((fieldMeta) => renderMaterialInput(material, fieldMeta.field, fieldMeta.label, fieldMeta.step, validationErrors, fieldMeta.min, fieldMeta.max))
+      .join('');
+
+    return `
+      <div class="material-card">
+        ${header}
+        <div class="control-grid material-grid">${commonFields}${terraCottaFields}</div>
+        <p class="material-note">Terra Cotta uses a local explicit internal-variable update with numerical tangent estimation inside the nonlinear solver.</p>
+      </div>
+    `;
+  }).join('');
+
+  return `${toolbar}${cards}`;
 }
 
 function downloadScene(json: string): void {
@@ -74,18 +424,19 @@ function downloadScene(json: string): void {
 
 export function createApp(root: HTMLElement): void {
   const store = new AppStore();
+  const materialValidationErrors = new Map<string, string>();
 
   root.innerHTML = `
     <div class="app-shell">
       <header class="topbar">
         <div>
-          <h1>FEM studio</h1>
+          <h1>FEM Studio</h1>
         </div>
         <div class="topbar-actions">
-          <button type="button" class="primary-action" data-action="solve-linear">Solve Linear Elastic</button>
-          <button type="button" data-action="export-scene">Export Scene</button>
-          <button type="button" data-action="import-scene">Import Scene</button>
-          <button type="button" data-action="reset-scene">Reset Example</button>
+          <button type="button" class="primary-action" data-action="solve-linear">Solve FEM</button>
+          <button type="button" data-action="export-scene">Save</button>
+          <button type="button" data-action="import-scene">Load</button>
+          <button type="button" data-action="reset-scene">Reset</button>
           <input type="file" data-role="import-file" accept="application/json" hidden />
         </div>
       </header>
@@ -96,50 +447,11 @@ export function createApp(root: HTMLElement): void {
             <div class="tool-list" data-role="tool-list"></div>
           </section>
           <section>
-            <p class="panel-label">Structured Mesh</p>
+            <p class="panel-label">Examples</p>
             <div class="control-grid">
-              <label class="labelled-field">
-                <span>Width</span>
-                <input type="number" min="10" step="10" data-role="mesh-width" />
+              <label class="labelled-field control-span-2">
+                <select data-role="example-scene"></select>
               </label>
-              <label class="labelled-field">
-                <span>Height</span>
-                <input type="number" min="10" step="10" data-role="mesh-height" />
-              </label>
-              <label class="labelled-field">
-                <span>Divisions X</span>
-                <input type="number" min="1" step="1" data-role="mesh-divisions-x" />
-              </label>
-              <label class="labelled-field">
-                <span>Divisions Y</span>
-                <input type="number" min="1" step="1" data-role="mesh-divisions-y" />
-              </label>
-            </div>
-            <button type="button" class="primary-action" data-action="generate-mesh">Generate Rectangle</button>
-          </section>
-          <section>
-            <p class="panel-label">Stamp Settings</p>
-            <div class="control-grid">
-              <label class="checkbox-row">
-                <input type="checkbox" data-role="support-fix-x" />
-                <span>Fix X</span>
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" data-role="support-fix-y" />
-                <span>Fix Y</span>
-              </label>
-              <label class="labelled-field">
-                <span>Load Fx</span>
-                <input type="number" step="1" data-role="load-fx" />
-              </label>
-              <label class="labelled-field">
-                <span>Load Fy</span>
-                <input type="number" step="1" data-role="load-fy" />
-              </label>
-            </div>
-            <div class="note-stack">
-              <p>Set both support flags off to remove a support stamp.</p>
-              <p>Set Fx and Fy to zero to remove a nodal load stamp.</p>
             </div>
           </section>
           <section>
@@ -175,60 +487,66 @@ export function createApp(root: HTMLElement): void {
             </div>
             <div class="status-pill" data-role="status-pill"></div>
           </div>
-          <svg class="editor-surface" data-role="editor-surface" aria-label="Finite element editor"></svg>
+          <div class="editor-stage">
+            <div class="editor-notice" data-role="editor-notice" hidden></div>
+            <svg class="editor-surface" data-role="editor-surface" aria-label="Finite element editor"></svg>
+          </div>
         </section>
         <aside class="panel right-panel">
-          <section>
-            <p class="panel-label">Scene</p>
-            <div class="stat-grid" data-role="scene-stats"></div>
-          </section>
-          <section>
-            <p class="panel-label">Analysis</p>
-            <div class="note-stack" data-role="analysis-panel"></div>
-          </section>
-          <section>
-            <p class="panel-label">Selection</p>
-            <div class="note-stack" data-role="selection-panel"></div>
-          </section>
           <section>
             <p class="panel-label">Material</p>
             <div class="note-stack" data-role="material-panel"></div>
           </section>
         </aside>
       </main>
-      <section class="results-strip">
-        <article data-role="results-summary">
-          <p class="panel-label">Analysis</p>
-          <h3>Linear-elastic response</h3>
-          <div class="note-stack"></div>
-        </article>
-        <article data-role="results-detail">
-          <p class="panel-label">Terra Cotta</p>
-          <h3>Constitutive seam reserved</h3>
-          <div class="note-stack"></div>
-        </article>
-      </section>
+      <dialog class="mesh-dialog" data-role="mesh-dialog">
+        <form method="dialog" class="mesh-dialog-body">
+          <div class="mesh-dialog-header">
+            <div>
+              <p class="panel-label">Structured Mesh</p>
+              <h2>Rectangle Generator</h2>
+            </div>
+            <button type="submit" value="cancel">Close</button>
+          </div>
+          <div class="control-grid">
+            <label class="labelled-field">
+              <span>Width</span>
+              <input type="number" min="10" step="10" data-role="mesh-width" />
+            </label>
+            <label class="labelled-field">
+              <span>Height</span>
+              <input type="number" min="10" step="10" data-role="mesh-height" />
+            </label>
+            <label class="labelled-field">
+              <span>Divisions X</span>
+              <input type="number" min="1" step="1" data-role="mesh-divisions-x" />
+            </label>
+            <label class="labelled-field">
+              <span>Divisions Y</span>
+              <input type="number" min="1" step="1" data-role="mesh-divisions-y" />
+            </label>
+          </div>
+          <div class="mesh-dialog-actions">
+            <button type="submit" value="cancel">Cancel</button>
+            <button type="button" class="primary-action mesh-generate-button" data-action="generate-mesh">Generate Rectangle</button>
+          </div>
+        </form>
+      </dialog>
     </div>
   `;
 
   const toolList = root.querySelector<HTMLDivElement>('[data-role="tool-list"]');
   const svg = root.querySelector<SVGSVGElement>('[data-role="editor-surface"]');
-  const sceneStats = root.querySelector<HTMLDivElement>('[data-role="scene-stats"]');
-  const analysisPanel = root.querySelector<HTMLDivElement>('[data-role="analysis-panel"]');
-  const selectionPanel = root.querySelector<HTMLDivElement>('[data-role="selection-panel"]');
+  const editorNotice = root.querySelector<HTMLDivElement>('[data-role="editor-notice"]');
   const materialPanel = root.querySelector<HTMLDivElement>('[data-role="material-panel"]');
   const statusPill = root.querySelector<HTMLDivElement>('[data-role="status-pill"]');
-  const resultsSummary = root.querySelector<HTMLElement>('[data-role="results-summary"] .note-stack');
-  const resultsDetail = root.querySelector<HTMLElement>('[data-role="results-detail"] .note-stack');
   const importInput = root.querySelector<HTMLInputElement>('[data-role="import-file"]');
+  const exampleSceneSelect = root.querySelector<HTMLSelectElement>('[data-role="example-scene"]');
+  const meshDialog = root.querySelector<HTMLDialogElement>('[data-role="mesh-dialog"]');
   const meshWidthInput = root.querySelector<HTMLInputElement>('[data-role="mesh-width"]');
   const meshHeightInput = root.querySelector<HTMLInputElement>('[data-role="mesh-height"]');
   const meshDivisionsXInput = root.querySelector<HTMLInputElement>('[data-role="mesh-divisions-x"]');
   const meshDivisionsYInput = root.querySelector<HTMLInputElement>('[data-role="mesh-divisions-y"]');
-  const supportFixXInput = root.querySelector<HTMLInputElement>('[data-role="support-fix-x"]');
-  const supportFixYInput = root.querySelector<HTMLInputElement>('[data-role="support-fix-y"]');
-  const loadFxInput = root.querySelector<HTMLInputElement>('[data-role="load-fx"]');
-  const loadFyInput = root.querySelector<HTMLInputElement>('[data-role="load-fy"]');
   const contourFieldSelect = root.querySelector<HTMLSelectElement>('[data-role="contour-field"]');
   const deformationScaleInput = root.querySelector<HTMLInputElement>('[data-role="deformation-scale"]');
   const showDeformedInput = root.querySelector<HTMLInputElement>('[data-role="show-deformed"]');
@@ -240,10 +558,13 @@ export function createApp(root: HTMLElement): void {
   const solveButton = root.querySelector<HTMLButtonElement>('[data-action="solve-linear"]');
   const generateMeshButton = root.querySelector<HTMLButtonElement>('[data-action="generate-mesh"]');
 
-  if (!toolList || !svg || !sceneStats || !analysisPanel || !selectionPanel || !materialPanel || !statusPill || !resultsSummary || !resultsDetail || !importInput || !meshWidthInput || !meshHeightInput || !meshDivisionsXInput || !meshDivisionsYInput || !supportFixXInput || !supportFixYInput || !loadFxInput || !loadFyInput || !contourFieldSelect || !deformationScaleInput || !showDeformedInput || !showDisplacementVectorsInput || !showReactionVectorsInput || !exportButton || !importButton || !resetButton || !solveButton || !generateMeshButton) {
+  if (!toolList || !svg || !editorNotice || !materialPanel || !statusPill || !importInput || !exampleSceneSelect || !meshDialog || !meshWidthInput || !meshHeightInput || !meshDivisionsXInput || !meshDivisionsYInput || !contourFieldSelect || !deformationScaleInput || !showDeformedInput || !showDisplacementVectorsInput || !showReactionVectorsInput || !exportButton || !importButton || !resetButton || !solveButton || !generateMeshButton) {
     throw new Error('App shell is missing required DOM nodes.');
   }
 
+  exampleSceneSelect.innerHTML = exampleScenes
+    .map((example) => `<option value="${example.id}">${example.label}</option>`)
+    .join('');
   contourFieldSelect.innerHTML = contourFieldMeta
     .map((field) => `<option value="${field.value}">${field.label}</option>`)
     .join('');
@@ -260,13 +581,22 @@ export function createApp(root: HTMLElement): void {
         </button>
       `,
     )
-    .join('');
+    .join('') + `
+      <button type="button" class="tool-button tool-button-secondary" data-action="${auxiliaryToolMeta.action}">
+        <span>${auxiliaryToolMeta.label}</span>
+        <span class="shortcut">${auxiliaryToolMeta.shortcut}</span>
+      </button>
+    `;
 
   toolList.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => {
     button.addEventListener('click', () => {
       const mode = button.dataset.tool as ToolMode;
       store.setTool(mode);
     });
+  });
+
+  toolList.querySelector<HTMLButtonElement>(`[data-action="${auxiliaryToolMeta.action}"]`)?.addEventListener('click', () => {
+    meshDialog.showModal();
   });
 
   window.addEventListener('keydown', (event) => {
@@ -277,6 +607,11 @@ export function createApp(root: HTMLElement): void {
     const tool = toolMeta.find((candidate) => candidate.shortcut === event.key)?.mode;
 
     if (!tool) {
+      if (event.key.toLowerCase() === auxiliaryToolMeta.shortcut.toLowerCase()) {
+        meshDialog.showModal();
+        return;
+      }
+
       if (event.key === 'Backspace' || event.key === 'Delete') {
         store.deleteSelection();
       }
@@ -311,6 +646,16 @@ export function createApp(root: HTMLElement): void {
     store.resetScene();
   });
 
+  const loadSelectedExample = (): void => {
+    const nextExample = getExampleSceneById(exampleSceneSelect.value);
+
+    if (!nextExample) {
+      return;
+    }
+
+    store.loadScene(nextExample.scene);
+  };
+
   solveButton.addEventListener('click', () => {
     store.solveLinearElastic();
   });
@@ -326,22 +671,6 @@ export function createApp(root: HTMLElement): void {
     });
   };
 
-  const updateSupportDraft = (): void => {
-    store.setSupportDraft({
-      fixX: supportFixXInput.checked,
-      fixY: supportFixYInput.checked,
-    });
-  };
-
-  const updateLoadDraft = (): void => {
-    const current = store.getState().loadDraft;
-
-    store.setLoadDraft({
-      fx: parseNumber(loadFxInput.value, current.fx),
-      fy: parseNumber(loadFyInput.value, current.fy),
-    });
-  };
-
   const updateVisualization = (): void => {
     const current = store.getState().visualization;
 
@@ -354,38 +683,157 @@ export function createApp(root: HTMLElement): void {
     });
   };
 
+  const renderCurrentState = (): void => {
+    renderPanels(
+      store.getState(),
+      toolList,
+      materialPanel,
+      statusPill,
+      editorNotice,
+      {
+        meshWidthInput,
+        meshHeightInput,
+        meshDivisionsXInput,
+        meshDivisionsYInput,
+        contourFieldSelect,
+        deformationScaleInput,
+        showDeformedInput,
+        showDisplacementVectorsInput,
+        showReactionVectorsInput,
+      },
+      materialValidationErrors,
+    );
+  };
+
   meshWidthInput.addEventListener('input', updateMeshDraft);
   meshHeightInput.addEventListener('input', updateMeshDraft);
   meshDivisionsXInput.addEventListener('input', updateMeshDraft);
   meshDivisionsYInput.addEventListener('input', updateMeshDraft);
-  supportFixXInput.addEventListener('input', updateSupportDraft);
-  supportFixYInput.addEventListener('input', updateSupportDraft);
-  loadFxInput.addEventListener('input', updateLoadDraft);
-  loadFyInput.addEventListener('input', updateLoadDraft);
   contourFieldSelect.addEventListener('input', updateVisualization);
   deformationScaleInput.addEventListener('input', updateVisualization);
   showDeformedInput.addEventListener('input', updateVisualization);
   showDisplacementVectorsInput.addEventListener('input', updateVisualization);
   showReactionVectorsInput.addEventListener('input', updateVisualization);
+  exampleSceneSelect.addEventListener('input', loadSelectedExample);
+  materialPanel.addEventListener('input', (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const materialId = target.dataset.materialId;
+    const field = target.dataset.materialField;
+
+    if (!materialId || !field || !isMaterialNumericField(field)) {
+      return;
+    }
+
+    materialValidationErrors.delete(getMaterialValidationKey(materialId, field));
+  });
+  materialPanel.addEventListener('change', (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLInputElement)) {
+      if (target instanceof HTMLSelectElement && target.dataset.role === 'material-kind') {
+        const materialId = target.dataset.materialId;
+        const kind = target.value;
+
+        if (!materialId || !isMaterialKind(kind)) {
+          return;
+        }
+
+        for (const key of [...materialValidationErrors.keys()]) {
+          if (key.startsWith(`${materialId}:`)) {
+            materialValidationErrors.delete(key);
+          }
+        }
+
+        store.changeMaterialKind(materialId, kind);
+      }
+      return;
+    }
+
+    const materialId = target.dataset.materialId;
+    const field = target.dataset.materialField;
+
+    if (!materialId || !field || !isMaterialNumericField(field)) {
+      return;
+    }
+
+    const material = store.getState().scene.materials.find((candidate) => candidate.id === materialId);
+
+    if (!material) {
+      return;
+    }
+
+    const nextValue = parseMaterialFieldValue(material, field, target.value);
+
+    if (nextValue === null) {
+      materialValidationErrors.set(getMaterialValidationKey(materialId, field), getMaterialFieldErrorMessage(material, field));
+      renderCurrentState();
+      return;
+    }
+
+    materialValidationErrors.delete(getMaterialValidationKey(materialId, field));
+    store.updateMaterialValue(materialId, field, nextValue);
+  });
+  materialPanel.addEventListener('click', (event) => {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>('button[data-action]');
+
+    if (!button) {
+      return;
+    }
+
+    const materialId = button.dataset.materialId;
+
+    switch (button.dataset.action) {
+      case 'add-linear-material':
+        store.addMaterial('linear-elastic-plane-strain');
+        break;
+      case 'add-drucker-prager-material':
+        store.addMaterial('drucker-prager-plane-strain');
+        break;
+      case 'add-terra-cotta-material':
+        store.addMaterial('terra-cotta-plane-strain');
+        break;
+      case 'activate-material':
+        if (materialId) {
+          store.setActiveMaterial(materialId);
+        }
+        break;
+      case 'assign-material':
+        if (materialId) {
+          store.assignMaterialToSelectedElements(materialId);
+        }
+        break;
+      case 'remove-material':
+        if (materialId) {
+          for (const key of [...materialValidationErrors.keys()]) {
+            if (key.startsWith(`${materialId}:`)) {
+              materialValidationErrors.delete(key);
+            }
+          }
+          store.removeMaterial(materialId);
+        }
+        break;
+      default:
+        break;
+    }
+  });
   generateMeshButton.addEventListener('click', () => {
     store.generateStructuredMesh();
+    meshDialog.close();
   });
+  loadSelectedExample();
 
-  store.subscribe((state) => renderPanels(state, toolList, sceneStats, analysisPanel, selectionPanel, materialPanel, statusPill, resultsSummary, resultsDetail, {
-    meshWidthInput,
-    meshHeightInput,
-    meshDivisionsXInput,
-    meshDivisionsYInput,
-    supportFixXInput,
-    supportFixYInput,
-    loadFxInput,
-    loadFyInput,
-    contourFieldSelect,
-    deformationScaleInput,
-    showDeformedInput,
-    showDisplacementVectorsInput,
-    showReactionVectorsInput,
-  }));
+  store.subscribe(() => renderCurrentState());
 }
 
 interface ControlRefs {
@@ -393,10 +841,6 @@ interface ControlRefs {
   meshHeightInput: HTMLInputElement;
   meshDivisionsXInput: HTMLInputElement;
   meshDivisionsYInput: HTMLInputElement;
-  supportFixXInput: HTMLInputElement;
-  supportFixYInput: HTMLInputElement;
-  loadFxInput: HTMLInputElement;
-  loadFyInput: HTMLInputElement;
   contourFieldSelect: HTMLSelectElement;
   deformationScaleInput: HTMLInputElement;
   showDeformedInput: HTMLInputElement;
@@ -407,14 +851,11 @@ interface ControlRefs {
 function renderPanels(
   state: AppState,
   toolList: HTMLElement,
-  sceneStats: HTMLElement,
-  analysisPanel: HTMLElement,
-  selectionPanel: HTMLElement,
   materialPanel: HTMLElement,
   statusPill: HTMLElement,
-  resultsSummary: HTMLElement,
-  resultsDetail: HTMLElement,
+  editorNotice: HTMLElement,
   controls: ControlRefs,
+  materialValidationErrors: Map<string, string>,
 ): void {
   toolList.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.tool === state.tool);
@@ -430,139 +871,32 @@ function renderPanels(
   statusPill.textContent = `${state.scene.nodes.length} nodes · ${state.scene.elements.length} elements · ${state.tool} · ${analysisLabel}`;
   statusPill.classList.toggle('is-dirty', state.dirty);
 
-  sceneStats.innerHTML = [
-    ['Nodes', `${state.scene.nodes.length}`],
-    ['Elements', `${state.scene.elements.length}`],
-    ['Supports', `${state.scene.supports.length}`],
-    ['Loads', `${state.scene.loads.length}`],
-    ['Zoom', `${state.viewport.zoom.toFixed(2)}x`],
-    ['Dirty', state.dirty ? 'yes' : 'no'],
-  ]
-    .map(
-      ([label, value]) => `
-        <div class="stat-card">
-          <span>${label}</span>
-          <strong>${value}</strong>
-        </div>
-      `,
-    )
-    .join('');
-
   controls.meshWidthInput.value = `${state.meshDraft.width}`;
   controls.meshHeightInput.value = `${state.meshDraft.height}`;
   controls.meshDivisionsXInput.value = `${state.meshDraft.divisionsX}`;
   controls.meshDivisionsYInput.value = `${state.meshDraft.divisionsY}`;
-  controls.supportFixXInput.checked = state.supportDraft.fixX;
-  controls.supportFixYInput.checked = state.supportDraft.fixY;
-  controls.loadFxInput.value = `${state.loadDraft.fx}`;
-  controls.loadFyInput.value = `${state.loadDraft.fy}`;
   controls.contourFieldSelect.value = state.visualization.contourField;
   controls.deformationScaleInput.value = `${state.visualization.deformationScale}`;
   controls.showDeformedInput.checked = state.visualization.showDeformedMesh;
   controls.showDisplacementVectorsInput.checked = state.visualization.showDisplacementVectors;
   controls.showReactionVectorsInput.checked = state.visualization.showReactionVectors;
 
-  if (state.analysis.status === 'success' && state.analysis.result) {
-    const contourValues = getContourValues(state.visualization.contourField, state.analysis.result.elementResults);
-    const contourRange = contourValues.length
-      ? `${Math.min(...contourValues).toFixed(3)} to ${Math.max(...contourValues).toFixed(3)}`
-      : 'disabled';
-    analysisPanel.innerHTML = `
-      <p>Max |u| = ${state.analysis.result.summary.maxDisplacement.toExponential(3)}</p>
-      <p>Max |R| = ${state.analysis.result.summary.maxReaction.toExponential(3)}</p>
-      <p>q max = ${state.analysis.result.summary.maxDeviatoricStress.toFixed(3)}</p>
-      <p>p range = ${state.analysis.result.summary.minMeanStress.toFixed(3)} to ${state.analysis.result.summary.maxMeanStress.toFixed(3)}</p>
-      <p>Contour: ${getContourFieldLabel(state.visualization.contourField)} (${contourRange})</p>
-      <p>Vectors: u ${state.visualization.showDisplacementVectors ? 'on' : 'off'}, R ${state.visualization.showReactionVectors ? 'on' : 'off'}</p>
+  if (state.analysis.status === 'error' && state.analysis.error) {
+    editorNotice.hidden = false;
+    editorNotice.innerHTML = `
+      <p class="editor-notice-title">Solve Issue</p>
+      <p>${state.analysis.error}</p>
     `;
-  } else if (state.analysis.status === 'error') {
-    analysisPanel.innerHTML = `<p>${state.analysis.error}</p>`;
   } else {
-    analysisPanel.innerHTML = '<p>Run the linear-elastic solve after editing supports and loads.</p>';
+    editorNotice.hidden = true;
+    editorNotice.innerHTML = '';
   }
 
-  const selectedNodes = state.scene.nodes.filter((node) => state.selection.nodeIds.includes(node.id));
-  const selectedElements = state.scene.elements.filter((element) => state.selection.elementIds.includes(element.id));
-  const selectedNodeResults = state.analysis.result
-    ? selectedNodes.map((node) => state.analysis.result?.displacements.find((candidate) => candidate.nodeId === node.id))
-    : [];
-  const selectedElementResults = state.analysis.result
-    ? selectedElements.map((element) => state.analysis.result?.elementResults.find((candidate) => candidate.elementId === element.id))
-    : [];
-  selectionPanel.innerHTML = selectedNodes.length
-    ? selectedNodes
-        .map(
-          (node, index) => {
-            const support = state.scene.supports.find((candidate) => candidate.nodeId === node.id);
-            const load = state.scene.loads.find((candidate) => candidate.nodeId === node.id);
-            const displacement = selectedNodeResults[index];
-            const reaction = state.analysis.result?.reactions.find((candidate) => candidate.nodeId === node.id);
-
-            return `
-              <p><strong>${node.id}</strong> at (${node.x.toFixed(1)}, ${node.y.toFixed(1)})</p>
-              <p>Support: ${support ? `ux=${support.fixX ? 'fixed' : 'free'}, uy=${support.fixY ? 'fixed' : 'free'}` : 'none'}</p>
-              <p>Load: ${load ? `Fx=${load.fx.toFixed(1)}, Fy=${load.fy.toFixed(1)}` : 'none'}</p>
-              <p>Displacement: ${displacement ? `ux=${displacement.ux.toExponential(3)}, uy=${displacement.uy.toExponential(3)}` : 'not solved'}</p>
-              <p>Reaction: ${reaction ? `Rx=${reaction.rx.toFixed(3)}, Ry=${reaction.ry.toFixed(3)}` : 'none'}</p>
-            `;
-          },
-        )
-        .join('')
-    : selectedElements.length
-      ? selectedElements.map((element, index) => {
-          const result = selectedElementResults[index];
-
-          return `
-            <p><strong>${element.id}</strong> uses ${element.nodeIds.join(', ')}</p>
-            <p>Stress: ${result ? `sxx=${result.stress.sxx.toFixed(3)}, syy=${result.stress.syy.toFixed(3)}, txy=${result.stress.txy.toFixed(3)}` : 'not solved'}</p>
-            <p>Invariants: ${result ? `p=${result.stress.meanStress.toFixed(3)}, q=${result.stress.deviatoricStress.toFixed(3)}` : 'not solved'}</p>
-          `;
-        }).join('')
-      : '<p>No node or element selected.</p>';
-
-  if (state.stagedElementNodeIds.length > 0) {
-    selectionPanel.insertAdjacentHTML(
-      'beforeend',
-      `<p>Triangle staging: ${state.stagedElementNodeIds.join(', ')}</p>`,
-    );
-  }
-
-  if (state.hoveredNodeId) {
-    selectionPanel.insertAdjacentHTML('beforeend', `<p>Hover: ${state.hoveredNodeId}</p>`);
-  }
-
-  materialPanel.innerHTML = state.scene.materials
-    .map(
-      (material) => `
-        <p><strong>${material.name}</strong></p>
-        <p>Model: plane strain linear elasticity</p>
-        <p>E = ${material.youngModulus.toLocaleString()}</p>
-        <p>ν = ${material.poissonRatio.toFixed(2)}</p>
-      `,
-    )
-    .join('');
-
-  if (state.analysis.status === 'success' && state.analysis.result) {
-    const topDisplacement = [...state.analysis.result.displacements].sort((left, right) => right.magnitude - left.magnitude)[0];
-    const topReaction = [...state.analysis.result.reactions].sort((left, right) => right.magnitude - left.magnitude)[0];
-
-    resultsSummary.innerHTML = `
-      <p>Maximum displacement occurs at <strong>${topDisplacement?.nodeId ?? 'n/a'}</strong>.</p>
-      <p>|u| = ${topDisplacement ? topDisplacement.magnitude.toExponential(3) : '0.000e+0'}</p>
-      <p>Maximum reaction occurs at <strong>${topReaction?.nodeId ?? 'n/a'}</strong>.</p>
-      <p>|R| = ${topReaction ? topReaction.magnitude.toFixed(3) : '0.000'}</p>
-      <p>Deformed mesh: ${state.visualization.showDeformedMesh ? `on (scale ${state.visualization.deformationScale.toFixed(2)})` : 'off'}</p>
-      <p>Vectors: displacement ${state.visualization.showDisplacementVectors ? 'on' : 'off'}, reaction ${state.visualization.showReactionVectors ? 'on' : 'off'}</p>
-    `;
-    resultsDetail.innerHTML = `
-      <p>The constitutive seam is still reserved for Terra Cotta, but the FE core now reports plane-strain mean stress p and deviatoric stress q from the elastic stress tensor.</p>
-      <p>Use the element selection tool to inspect sxx, syy, txy, p, and q for any triangle, or switch the contour field to compare response across the mesh.</p>
-    `;
-  } else if (state.analysis.status === 'error') {
-    resultsSummary.innerHTML = `<p>${state.analysis.error}</p>`;
-    resultsDetail.innerHTML = '<p>Fix supports or mesh validity, then run the solve again.</p>';
-  } else {
-    resultsSummary.innerHTML = '<p>Build or import a mesh, stamp supports and loads, then run the linear-elastic solve.</p>';
-    resultsDetail.innerHTML = '<p>The Terra Cotta constitutive pathway remains isolated from the current elastic solver so the later material-point work can slot in without changing the editor.</p>';
-  }
+  materialPanel.innerHTML = renderMaterialPanel(
+    state.scene.materials,
+    state.scene.elements,
+    state.selection.elementIds,
+    state.activeMaterialId,
+    materialValidationErrors,
+  );
 }
